@@ -2,6 +2,7 @@ import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
+import type { CaptureLevels } from './capture.service';
 
 type HelperOk = {
   id: string;
@@ -18,7 +19,17 @@ type HelperErr = {
   error?: string;
 };
 
-type HelperMsg = HelperOk | HelperErr;
+type HelperLevels = {
+  event: 'levels';
+  mic: number;
+  system: number;
+};
+
+type HelperMsg = HelperOk | HelperErr | HelperLevels;
+
+function isLevels(msg: HelperMsg): msg is HelperLevels {
+  return 'event' in msg && msg.event === 'levels';
+}
 
 export class HelperClient {
   private child: ChildProcessWithoutNullStreams | null = null;
@@ -28,6 +39,11 @@ export class HelperClient {
     string,
     { resolve: (msg: HelperOk) => void; reject: (err: Error) => void }
   >();
+  private levelsListener: ((levels: CaptureLevels) => void) | null = null;
+
+  onLevels(listener: ((levels: CaptureLevels) => void) | null): void {
+    this.levelsListener = listener;
+  }
 
   startProcess(): void {
     if (this.child && !this.child.killed) {
@@ -93,6 +109,13 @@ export class HelperClient {
     } catch {
       return;
     }
+    if (isLevels(msg)) {
+      this.levelsListener?.({
+        mic: clamp01(msg.mic),
+        system: clamp01(msg.system),
+      });
+      return;
+    }
     const waiter = this.pending.get(msg.id);
     if (!waiter) {
       return;
@@ -111,6 +134,16 @@ export class HelperClient {
     }
     this.pending.clear();
   }
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+  if (value >= 1) {
+    return 1;
+  }
+  return value;
 }
 
 function helperBinaryPath(): string {

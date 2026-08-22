@@ -26,6 +26,13 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
   private var micSamples: [Int16] = []
   private var systemSamples: [Int16] = []
   private var lastTempURL: URL?
+  private var lastMicLevel = 0.0
+  private var lastSystemLevel = 0.0
+  private var lastMicBufferAt = Date.distantPast
+  private var lastSystemBufferAt = Date.distantPast
+  private var levelsTimer: DispatchSourceTimer?
+  private var recording = false
+  var onLevels: ((Double, Double) -> Void)?
 
   private func withLock<T>(_ body: () throws -> T) rethrows -> T {
     lock.lock()
@@ -37,33 +44,34 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
     withLock { state }
   }
 
+  func preview() async throws -> Bool {
+    let session = withLock { state }
+    if session == "listening" || session == "paused" {
+      return withLock { systemAudioEnabled }
+    }
+    try await ensureInputs()
+    withLock {
+      recording = false
+      paused = false
+      state = "idle"
+    }
+    return withLock { systemAudioEnabled }
+  }
+
   func start() async throws -> Bool {
     let busy = withLock { state != "idle" }
     if busy {
       throw CaptureError.alreadyRunning
     }
 
+    try await ensureInputs()
     resetBuffers()
-    try await requestMicrophone()
-    try startMicrophone()
-
-    var enabled = false
-    if Self.systemAudioSupported {
-      do {
-        try await startSystemAudio()
-        enabled = true
-      } catch {
-        enabled = false
-        fputs("system audio unavailable: \(error.localizedDescription)\n", stderr)
-      }
-    }
-
     withLock {
-      systemAudioEnabled = enabled
+      recording = true
       paused = false
       state = "listening"
     }
-    return enabled
+    return withLock { systemAudioEnabled }
   }
 
   func pause() throws {
@@ -71,7 +79,10 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
       guard state == "listening" else { throw CaptureError.notListening }
       paused = true
       state = "paused"
+      lastMicLevel = 0
+      lastSystemLevel = 0
     }
+    onLevels?(0, 0)
   }
 
   func resume() throws {
@@ -88,7 +99,7 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
       throw CaptureError.notListening
     }
 
-    await teardownInputs()
+    endRecording()
 
     let snapshot = withLock { (micSamples, systemSamples, systemAudioEnabled) }
 
@@ -114,15 +125,14 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
     try WavWriter.writeCanonical(samples: mixed, to: url)
     deleteLastTemp()
     lastTempURL = url
-    setIdle()
+    resetBuffers()
     return (url, duration, snapshot.2)
   }
 
   func cancel() async {
-    await teardownInputs()
+    endRecording()
     deleteLastTemp()
     resetBuffers()
-    setIdle()
   }
 
   // MARK: - Permissions and sources
@@ -139,6 +149,23 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
     if !granted {
       throw CaptureError.micDenied
     }
+  }
+
+  private func ensureInputs() async throws {
+    if engine == nil {
+      try await requestMicrophone()
+      try startMicrophone()
+    }
+    if stream == nil, Self.systemAudioSupported {
+      do {
+        try await startSystemAudio()
+        withLock { systemAudioEnabled = true }
+      } catch {
+        withLock { systemAudioEnabled = false }
+        fputs("system audio unavailable: \(error.localizedDescription)\n", stderr)
+      }
+    }
+    startLevelsTimer()
   }
 
   private func startMicrophone() throws {
@@ -206,8 +233,8 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
   }
 
   private func append(buffer: AVAudioPCMBuffer, system: Bool) {
-    let isPaused = withLock { paused || state == "idle" }
-    if isPaused {
+    let snapshot = withLock { (paused, recording) }
+    if snapshot.0 {
       return
     }
     let samples: [Int16]
@@ -217,16 +244,27 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
       samples = AudioConvert.int16Mono16k(buffer, converterCache: &micConverterCache)
     }
     guard !samples.isEmpty else { return }
+    let level = AudioConvert.displayLevel(samples)
     withLock {
       if system {
-        systemSamples.append(contentsOf: samples)
+        lastSystemLevel = level
+        lastSystemBufferAt = Date()
+        if snapshot.1 {
+          systemSamples.append(contentsOf: samples)
+        }
       } else {
-        micSamples.append(contentsOf: samples)
+        lastMicLevel = level
+        lastMicBufferAt = Date()
+        if snapshot.1 {
+          micSamples.append(contentsOf: samples)
+        }
       }
     }
   }
 
   private func teardownInputs() async {
+    stopLevelsTimer()
+    onLevels?(0, 0)
     if let stream {
       try? await stream.stopCapture()
     }
@@ -238,6 +276,44 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
     engine = nil
     micConverterCache.removeAll()
     systemConverterCache.removeAll()
+    withLock { recording = false }
+  }
+
+  private func startLevelsTimer() {
+    stopLevelsTimer()
+    let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInteractive))
+    timer.schedule(deadline: .now(), repeating: .milliseconds(50))
+    timer.setEventHandler { [weak self] in
+      self?.emitLevels()
+    }
+    timer.resume()
+    levelsTimer = timer
+  }
+
+  private func stopLevelsTimer() {
+    levelsTimer?.cancel()
+    levelsTimer = nil
+  }
+
+  private func emitLevels() {
+    let snapshot = withLock { () -> (String, Bool, Double, Double, Date, Date) in
+      (
+        state,
+        paused,
+        lastMicLevel,
+        lastSystemLevel,
+        lastMicBufferAt,
+        lastSystemBufferAt
+      )
+    }
+    if snapshot.0 == "paused" || snapshot.1 {
+      onLevels?(0, 0)
+      return
+    }
+    let now = Date()
+    let mic = now.timeIntervalSince(snapshot.4) < 0.15 ? snapshot.2 : 0
+    let system = now.timeIntervalSince(snapshot.5) < 0.15 ? snapshot.3 : 0
+    onLevels?(mic, system)
   }
 
   private func resetBuffers() {
@@ -247,12 +323,16 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
     }
   }
 
-  private func setIdle() {
+  private func endRecording() {
     withLock {
-      state = "idle"
+      recording = false
       paused = false
-      systemAudioEnabled = false
+      state = "idle"
     }
+  }
+
+  private func setIdle() {
+    endRecording()
   }
 
   private func deleteLastTemp() {

@@ -1,10 +1,12 @@
 type Locale = 'en' | 'es';
 type Messages = Record<string, string>;
+type CaptureLevels = { mic: number; system: number };
 
 type PithApi = {
   getLocale: () => Promise<Locale>;
   getMessages: (locale: Locale) => Promise<Messages>;
   capture: {
+    preview: () => Promise<{ systemAudioEnabled: boolean }>;
     start: () => Promise<{ systemAudioEnabled: boolean }>;
     pause: () => Promise<void>;
     resume: () => Promise<void>;
@@ -17,6 +19,7 @@ type PithApi = {
     cancel: () => Promise<void>;
     getState: () => Promise<'idle' | 'listening' | 'paused'>;
     resend: () => Promise<{ text: string; language: Locale }>;
+    onLevels: (listener: (levels: CaptureLevels) => void) => () => void;
   };
 };
 
@@ -26,6 +29,7 @@ let locale: Locale = 'en';
 let t: Messages = {};
 let systemAudioEnabled: boolean | null = null;
 let busy = false;
+let awaitingTranscript = false;
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 
@@ -47,6 +51,9 @@ function applyCopy(): void {
   $('permissionHint').textContent = t.permissionHint;
   $('grantAgain').textContent = t.grantAgain;
   $('transcriptLabel').textContent = t.transcript;
+  $('micLevelLabel').textContent = t.levelMic;
+  $('sysLevelLabel').textContent = t.levelSystem;
+  $('levelPill').setAttribute('aria-label', t.levelPillLabel);
   renderSystemAudio();
 }
 
@@ -112,15 +119,38 @@ async function syncButtons(): Promise<void> {
   ($('cancel') as HTMLButtonElement).disabled =
     busy || (state !== 'listening' && state !== 'paused');
   ($('resend') as HTMLButtonElement).disabled = busy;
-  const status =
-    busy && state === 'idle'
-      ? t.statusTranscribing
-      : state === 'listening'
-        ? t.statusListening
-        : state === 'paused'
-          ? t.statusPaused
-          : t.statusIdle;
+  const status = awaitingTranscript
+    ? t.statusTranscribing
+    : state === 'listening'
+      ? t.statusListening
+      : state === 'paused'
+        ? t.statusPaused
+        : t.statusMonitoring;
   $('status').textContent = status;
+  $('levelPill').hidden = false;
+}
+
+const BAR_GAIN = [12, 16, 14];
+
+function setBars(container: HTMLElement, level: number): void {
+  const rest = (container.dataset.rest || '8,14,10')
+    .split(',')
+    .map((value) => Number(value));
+  const bars = container.querySelectorAll('.bar');
+  bars.forEach((bar, index) => {
+    const base = rest[index] ?? 8;
+    const gain = BAR_GAIN[index] ?? 12;
+    (bar as HTMLElement).style.height = `${base + level * gain}px`;
+  });
+}
+
+function applyLevels(levels: CaptureLevels): void {
+  setBars($('micBars'), levels.mic);
+  setBars($('sysBars'), levels.system);
+  $('levelPill').setAttribute(
+    'aria-valuenow',
+    String(Math.max(levels.mic, levels.system).toFixed(2)),
+  );
 }
 
 async function withBusy(fn: () => Promise<void>): Promise<void> {
@@ -133,6 +163,7 @@ async function withBusy(fn: () => Promise<void>): Promise<void> {
     setError(errorCode(error));
   } finally {
     busy = false;
+    awaitingTranscript = false;
     await syncButtons();
   }
 }
@@ -141,7 +172,13 @@ async function init(): Promise<void> {
   locale = await pith.getLocale();
   t = await pith.getMessages(locale);
   applyCopy();
+  pith.capture.onLevels(applyLevels);
   await syncButtons();
+  await withBusy(async () => {
+    const result = await pith.capture.preview();
+    systemAudioEnabled = result.systemAudioEnabled;
+    renderSystemAudio();
+  });
 
   (document.getElementById('lang') as HTMLSelectElement).addEventListener(
     'change',
@@ -164,6 +201,7 @@ async function init(): Promise<void> {
   $('resume').addEventListener('click', () => withBusy(() => pith.capture.resume()));
   $('stop').addEventListener('click', () =>
     withBusy(async () => {
+      awaitingTranscript = true;
       $('status').textContent = t.statusTranscribing;
       const result = await pith.capture.stop();
       systemAudioEnabled = result.systemAudioEnabled;
@@ -175,6 +213,7 @@ async function init(): Promise<void> {
   $('cancel').addEventListener('click', () => withBusy(() => pith.capture.cancel()));
   $('resend').addEventListener('click', () =>
     withBusy(async () => {
+      awaitingTranscript = true;
       $('status').textContent = t.statusTranscribing;
       const result = await pith.capture.resend();
       $('transcript').textContent = result.text.trim() ? result.text : t.noSpeech;

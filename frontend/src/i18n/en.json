@@ -10,7 +10,8 @@
   "cancel": "Cancel",
   "resend": "Resend last mix",
   "statusIdle": "Idle",
-  "statusListening": "Listening",
+  "statusMonitoring": "Listening — not recording",
+  "statusListening": "Recording",
   "statusPaused": "Paused",
   "statusTranscribing": "Sending mix to transcribe…",
   "systemAudioOn": "System audio: on (meeting sound, not the screen)",
@@ -27,5 +28,8 @@
   "errorEmpty": "No audio was captured. Try Start, speak, then Stop.",
   "errorTooShort": "That clip was too short for transcription. Keep listening for at least a second, then Stop.",
   "errorSpike": "Transcribe failed",
-  "errorGeneric": "Something went wrong"
+  "errorGeneric": "Something went wrong",
+  "levelMic": "Mic",
+  "levelSystem": "System",
+  "levelPillLabel": "Live input levels"
 }

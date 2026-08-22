@@ -5,6 +5,11 @@ export type CapturedAudio = {
   durationSeconds: number;
 };
 
+export type CaptureLevels = {
+  mic: number;
+  system: number;
+};
+
 export interface CaptureService {
   start(): Promise<{ systemAudioEnabled: boolean }>;
   pause(): Promise<void>;
@@ -12,4 +17,6 @@ export interface CaptureService {
   stop(): Promise<CapturedAudio>;
   cancel(): Promise<void>;
   getState(): CaptureState;
+  subscribeLevels(listener: (levels: CaptureLevels) => void): () => void;
+  preview(): Promise<{ systemAudioEnabled: boolean }>;
 }

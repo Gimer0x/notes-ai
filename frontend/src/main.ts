@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, systemPreferences } from 'electron';
 import { readFile, unlink } from 'fs/promises';
 import * as path from 'path';
+import type { CaptureLevels } from './capture/capture.service';
 import { NativeCaptureService } from './capture/native-capture.service';
 import { backendUrl, captureSpikeKey, loadFrontendEnv } from './env';
 import { SpikeClient } from './spike/spike-client';
@@ -13,6 +14,14 @@ const capture = new NativeCaptureService();
 const spike = new SpikeClient(backendUrl(), captureSpikeKey());
 let lastMix: Buffer | null = null;
 let lastSystemAudioEnabled = false;
+
+function broadcastLevels(levels: CaptureLevels): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send('capture:levels', levels);
+  }
+}
+
+capture.subscribeLevels(broadcastLevels);
 
 function preferredLocale(): 'en' | 'es' {
   return app.getLocale().toLowerCase().startsWith('es') ? 'es' : 'en';
@@ -37,6 +46,11 @@ function createWindow(): void {
 ipcMain.handle('i18n:locale', () => preferredLocale());
 ipcMain.handle('i18n:messages', (_event, locale: 'en' | 'es') => {
   return locale === 'es' ? es : en;
+});
+ipcMain.handle('capture:preview', async () => {
+  const result = await capture.preview();
+  lastSystemAudioEnabled = result.systemAudioEnabled;
+  return result;
 });
 ipcMain.handle('capture:start', async () => {
   const result = await capture.start();

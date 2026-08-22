@@ -10,7 +10,8 @@
   "cancel": "Cancelar",
   "resend": "Reenviar última mezcla",
   "statusIdle": "Inactivo",
-  "statusListening": "Escuchando",
+  "statusMonitoring": "Escuchando — sin grabar",
+  "statusListening": "Grabando",
   "statusPaused": "En pausa",
   "statusTranscribing": "Enviando la mezcla a transcribir…",
   "systemAudioOn": "Audio del sistema: activo (sonido de la reunión, no la pantalla)",
@@ -27,5 +28,8 @@
   "errorEmpty": "No se capturó audio. Pulsa Iniciar, habla y luego Detener.",
   "errorTooShort": "El clip es demasiado corto para transcribir. Escucha al menos un segundo y luego Detener.",
   "errorSpike": "Falló la transcripción",
-  "errorGeneric": "Algo salió mal"
+  "errorGeneric": "Algo salió mal",
+  "levelMic": "Mic",
+  "levelSystem": "Sistema",
+  "levelPillLabel": "Niveles de entrada en vivo"
 }

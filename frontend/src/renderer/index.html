@@ -76,6 +76,50 @@
       #error {
         color: #8b2e2e;
       }
+      [hidden] {
+        display: none !important;
+      }
+      .level-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 14px;
+        margin: 4px 0 12px;
+        padding: 8px 14px;
+        border-radius: 999px;
+        background: rgba(36, 36, 36, 0.92);
+        border: 1px solid rgba(220, 220, 220, 0.22);
+        color: #f4f4f4;
+      }
+      .level-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .level-bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 3px;
+        height: 22px;
+      }
+      .level-bars .bar {
+        width: 4px;
+        border-radius: 99px;
+        background: #32d74b;
+      }
+      .level-bars .bar:nth-child(1) {
+        height: 8px;
+      }
+      .level-bars .bar:nth-child(2) {
+        height: 14px;
+      }
+      .level-bars .bar:nth-child(3) {
+        height: 10px;
+      }
+      .level-label {
+        font-size: 0.72rem;
+        letter-spacing: 0.02em;
+        color: rgba(244, 244, 244, 0.72);
+      }
     </style>
   </head>
   <body>
@@ -99,6 +143,30 @@
         <button id="resend"></button>
       </div>
       <p id="status"></p>
+      <div
+        id="levelPill"
+        class="level-pill"
+        role="meter"
+        aria-valuemin="0"
+        aria-valuemax="1"
+      >
+        <div class="level-group">
+          <span class="level-bars" id="micBars" data-rest="8,14,10">
+            <span class="bar"></span>
+            <span class="bar"></span>
+            <span class="bar"></span>
+          </span>
+          <span class="level-label" id="micLevelLabel"></span>
+        </div>
+        <div class="level-group">
+          <span class="level-bars" id="sysBars" data-rest="8,14,10">
+            <span class="bar"></span>
+            <span class="bar"></span>
+            <span class="bar"></span>
+          </span>
+          <span class="level-label" id="sysLevelLabel"></span>
+        </div>
+      </div>
       <p id="systemAudio"></p>
       <p id="duration"></p>
       <p id="error"></p>

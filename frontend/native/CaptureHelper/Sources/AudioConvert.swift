@@ -90,6 +90,21 @@ enum AudioConvert {
     return samples
   }
 
+  /// 0...1 RMS of Int16 PCM. Near-silence is 0 so the UI does not fake motion.
+  static func displayLevel(_ samples: [Int16]) -> Double {
+    guard !samples.isEmpty else { return 0 }
+    var sum = 0.0
+    for sample in samples {
+      let normalized = Double(sample) / 32768.0
+      sum += normalized * normalized
+    }
+    let rms = sqrt(sum / Double(samples.count))
+    if rms < 0.004 {
+      return 0
+    }
+    return min(1, (rms - 0.004) * 14)
+  }
+
   static func mix(_ mic: [Int16], _ system: [Int16]) -> [Int16] {
     let count = max(mic.count, system.count)
     guard count > 0 else { return [] }

@@ -16,21 +16,49 @@ struct Outbound: Encodable {
   var state: String? = nil
 }
 
+struct LevelsEvent: Encodable {
+  let event = "levels"
+  let mic: Double
+  let system: Double
+}
+
 let nsApp = NSApplication.shared
 nsApp.setActivationPolicy(.accessory)
 
 let engine = CaptureEngine()
+engine.onLevels = { mic, system in
+  writeLevels(mic: mic, system: system)
+}
 let encoder = JSONEncoder()
 let decoder = JSONDecoder()
 var leftover = Data()
 let stdin = FileHandle.standardInput
+let stdoutLock = NSLock()
+
+func writeStdout(_ data: Data) {
+  stdoutLock.lock()
+  FileHandle.standardOutput.write(data)
+  stdoutLock.unlock()
+}
 
 func writeOutbound(_ outbound: Outbound) {
   guard let data = try? encoder.encode(outbound),
         var line = String(data: data, encoding: .utf8)
   else { return }
   line.append("\n")
-  FileHandle.standardOutput.write(Data(line.utf8))
+  writeStdout(Data(line.utf8))
+}
+
+func writeLevels(mic: Double, system: Double) {
+  let event = LevelsEvent(
+    mic: (mic * 1000).rounded() / 1000,
+    system: (system * 1000).rounded() / 1000
+  )
+  guard let data = try? encoder.encode(event),
+        var line = String(data: data, encoding: .utf8)
+  else { return }
+  line.append("\n")
+  writeStdout(Data(line.utf8))
 }
 
 func fail(_ inbound: Inbound, _ error: Error) {
@@ -53,6 +81,9 @@ stdin.readabilityHandler = { handle in
     Task {
       do {
         switch inbound.cmd {
+        case "preview":
+          let enabled = try await engine.preview()
+          writeOutbound(Outbound(id: inbound.id, ok: true, systemAudioEnabled: enabled))
         case "start":
           let enabled = try await engine.start()
           writeOutbound(Outbound(id: inbound.id, ok: true, systemAudioEnabled: enabled))
