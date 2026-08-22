@@ -6,5 +6,9 @@ export type TranscriptResult = {
 };
 
 export interface TranscribeService {
-  transcribe(wavPathsOrBuffers: Buffer[], originalName: string): Promise<TranscriptResult>;
+  transcribe(wavPaths: string[]): Promise<TranscriptResult>;
+  transcribeBuffers(
+    buffers: Buffer[],
+    originalName: string,
+  ): Promise<TranscriptResult>;
 }

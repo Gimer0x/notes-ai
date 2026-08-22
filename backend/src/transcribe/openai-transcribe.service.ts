@@ -1,3 +1,4 @@
+import { readFile } from 'fs/promises';
 import {
   BadGatewayException,
   Injectable,
@@ -14,7 +15,12 @@ const DEFAULT_MODEL = 'gpt-transcribe';
 export class OpenAiTranscribeService implements TranscribeService {
   constructor(private readonly config: ConfigService) {}
 
-  async transcribe(
+  async transcribe(wavPaths: string[]): Promise<TranscriptResult> {
+    const buffers = await Promise.all(wavPaths.map((path) => readFile(path)));
+    return this.transcribeBuffers(buffers, 'audio.wav');
+  }
+
+  async transcribeBuffers(
     buffers: Buffer[],
     originalName: string,
   ): Promise<TranscriptResult> {

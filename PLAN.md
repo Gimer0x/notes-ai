@@ -138,7 +138,7 @@ Keep this shape. Table names may differ; relationships must not.
 - `code`: `free` \| `paid`
 - `max_listening_seconds_per_window` (free: `3600`; paid: `360000` = 100 hours)
 - `max_seconds_per_note` (free: `1800`; paid: `null`)
-- `max_notes_per_window` (free: `10`; paid: `null`)
+- `max_notes_per_window` (free: `10`; paid: `0` = unlimited)
 - `stripe_price_id_monthly` (null on free; Stripe Price for $7.99/mo)
 - `stripe_price_id_yearly` (null on free; Stripe Price for $87.99/yr)
 - timestamps
@@ -205,7 +205,7 @@ Resolve the active window from plan rules above (free 30-day slices vs Stripe mo
 
 Implement **in this order**. Each step must compile, use `.env`, follow SOLID, and update `README.md`. Do not start step N+1 until step N works.
 
-**Status:** Steps 1–6 are implemented. Confirm Step 6 (device name + reconnect) in the debug window before Step 7. Product work starts at Step 7.
+**Status:** Steps 1–7 are implemented. Confirm Postgres seed + `GET /config` before Step 8. Website is Step 8.
 
 ### Module boundaries
 
@@ -605,4 +605,4 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 
 ## Still open
 
-None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. After Step 6 is confirmed, next code step is **Step 7** (Postgres / product backend).
+None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. After Step 7 is confirmed, next code step is **Step 8** (public website).

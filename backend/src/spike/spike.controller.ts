@@ -38,7 +38,7 @@ export class SpikeController {
     );
 
     try {
-      const result = await this.transcribeService.transcribe(
+      const result = await this.transcribeService.transcribeBuffers(
         [file.buffer],
         file.originalname,
       );

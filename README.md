@@ -1,16 +1,17 @@
 # Notes AI — capture spike
 
-macOS meeting notepad. Headphone system audio and mic-only fallback are proven (**Step 5 pass**). **Step 4** is the live level pill. **Step 6** shows the selected mic name and reconnects if the input changes. **Next:** Step 7 (product backend). No website, Google, Stripe, or notepad UI yet. Follow `PLAN.md`.
+macOS meeting notepad. Capture (Steps 1–6) is proven. **Step 7** is the product backend: Postgres schema, seeded `plans`, internal transcribe, `GET /config`. Spike transcribe stays **dev-only**. No website, Google, Stripe Checkout, or notepad UI yet. Follow `PLAN.md`.
 
 ## Layout
 
-- `backend/` — NestJS API (`GET /health`, `POST /spike/transcribe`)
+- `backend/` — NestJS API (`GET /health`, `GET /config`, Postgres schema). `POST /spike/transcribe` only when `NODE_ENV=development` and `CAPTURE_SPIKE_KEY` is set.
 - `frontend/` — Electron debug window + native **Pith Capture Helper** (AVAudioEngine + ScreenCaptureKit)
 - `website/` — not created until Step 8
 
 ## Prerequisites
 
 - Node.js 22+
+- PostgreSQL 16+ (Docker Compose in `backend/` is enough)
 - macOS 14.2+ for system audio (older macOS falls back to mic-only)
 - Xcode Command Line Tools (`swift`) to build the capture helper
 - An OpenAI API key (backend)
@@ -24,24 +25,37 @@ cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
 ```
 
-In `backend/.env` set `OPENAI_API_KEY` and `CAPTURE_SPIKE_KEY`.
+In `backend/.env` set `OPENAI_API_KEY`, `CAPTURE_SPIKE_KEY`, and `DATABASE_URL` (see `.env.example`). Quota caps live in the `plans` table, not in code. Pause / min-listen / upload-retry / WAV chunk length live in backend env and `GET /config`.
+
+Never commit `.env`. `POST /spike/transcribe` is **dev-only** (`NODE_ENV=development` plus `CAPTURE_SPIKE_KEY`). `npm start` in backend sets `NODE_ENV=production` and does not register the spike route.
 
 In `frontend/.env` set:
 
 - `BACKEND_URL=http://localhost:3000`
 - `CAPTURE_SPIKE_KEY` — **the same value** as backend (Electron **main** sends `X-Spike-Key`; the window never sees it)
 
-Never commit `.env`. `POST /spike/transcribe` is **dev-only**.
-
 ## Run — backend
+
+Start Postgres, then the API:
 
 ```bash
 cd backend
+docker compose up -d
 npm install
 npm run start:dev
 ```
 
 `curl http://localhost:3000/health` → `{"ok":true}`
+
+`curl http://localhost:3000/config` → timings from `.env` (`minListenSeconds`, pause, upload retry, WAV chunk).
+
+On boot the API creates tables and seeds `plans` (`free` and `paid`). Price amounts are not stored in code; Stripe price ids stay null until Step 10.
+
+If you already run Homebrew Postgres, create a `pith` database and set `DATABASE_URL` (for example `postgres://localhost:5432/pith`) instead of Docker.
+
+```bash
+docker compose exec postgres psql -U pith -c 'SELECT code, max_listening_seconds_per_window, max_notes_per_window FROM plans;'
+```
 
 ## Run — Electron capture (Step 3)
 
@@ -78,7 +92,7 @@ On first **Start**, macOS should show a Microphone prompt. If **Pith Capture Hel
 
 GPT transcribe rejects macOS Voice Memos / QuickTime WAVs that include a `JUNK` chunk. Capture writes a canonical PCM WAV. The backend still runs `canonicalizeWav` as a safety net for fixture uploads.
 
-## Curl still works (Step 2)
+## Curl still works (Step 2, development only)
 
 From the repo root, with `YOUR_SPIKE_KEY` from `backend/.env`:
 
@@ -102,6 +116,6 @@ Never commit `.env`. See `.env.example` only.
 | Built-in Mac mic, system audio on                         | Pass (2026-08-21). Transcript of spoken Spanish + English.                                                                                                                                                              |
 | **Headphones (AirPods / Bluetooth), YouTube + own voice** | **Pass** (2026-08-21). ~80 s mix; `micPeak` and `sysPeak` both high. Transcript contained the tester’s speech **and** YouTube speech (block times / “357”). Status: system audio on.                                    |
 | Screen Recording **denied** (mic-only fallback)           | **Pass** (2026-08-21). Cursor Screen Recording off. Helper log: TCC declined, `system=0` `sysPeak=0`. UI: system audio off + mic-only warning. Transcript had the tester’s voice only (YouTube missing). App still ran. |
-| Selected input name + reconnect on device change (Step 6) | Pending user test. Window should show the default mic name during preview; switching input or unplugging AirPods should update the name and keep capture going (or warn if none). |
+| Selected input name + reconnect on device change (Step 6) | Pass (tester confirmed 2026-08-22). Name updates and tap reconnects; AirPods-in-case then needed a retry fix for format -10868. |
 
 
