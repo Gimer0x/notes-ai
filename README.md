@@ -1,4 +1,4 @@
-# Pith (working title) — capture spike
+# Notes AI — capture spike
 
 macOS meeting notepad. Headphone system audio and mic-only fallback are proven (**Step 5 pass**). **Next:** Step 4 (live level indicator), then Step 6 (reconnect the tap). No website, Google, Stripe, or notepad UI yet. Follow `PLAN.md`.
 
@@ -14,6 +14,8 @@ macOS meeting notepad. Headphone system audio and mic-only fallback are proven (
 - macOS 14.2+ for system audio (older macOS falls back to mic-only)
 - Xcode Command Line Tools (`swift`) to build the capture helper
 - An OpenAI API key (backend)
+
+
 
 ## Setup
 
@@ -57,7 +59,7 @@ npm start
 2. Click **Start**. Allow **Microphone**. Allow **Screen Recording** — that permission is for **meeting sound** (Zoom / Meet / Teams / YouTube), not to save video or screenshots.
 3. If you just granted Screen Recording, click **Start** again.
 4. Play something in headphones and say a short phrase, then **Stop**.
-5. The mix (16-bit PCM WAV, mono, 16 kHz, `fmt ` + `data` only) is posted to `POST /spike/transcribe`. The transcript appears in the window.
+5. The mix (16-bit PCM WAV, mono, 16 kHz, `fmt`  + `data` only) is posted to `POST /spike/transcribe`. The transcript appears in the window.
 
 Status should show **System audio: on** when Screen Recording is allowed. If it stays off, the app continues **mic-only** and warns that other people may be missing.
 
@@ -85,14 +87,19 @@ curl -sS -X POST http://localhost:3000/spike/transcribe \
   -F "audio=@./backend/audios/english.wav"
 ```
 
+
+
 ## Secrets
 
 Never commit `.env`. See `.env.example` only.
 
 ## Capture verification
 
-| Test | Result |
-| --- | --- |
-| Built-in Mac mic, system audio on | Pass (2026-08-21). Transcript of spoken Spanish + English. |
-| **Headphones (AirPods / Bluetooth), YouTube + own voice** | **Pass** (2026-08-21). ~80 s mix; `micPeak` and `sysPeak` both high. Transcript contained the tester’s speech **and** YouTube speech (block times / “357”). Status: system audio on. |
-| Screen Recording **denied** (mic-only fallback) | **Pass** (2026-08-21). Cursor Screen Recording off. Helper log: TCC declined, `system=0` `sysPeak=0`. UI: system audio off + mic-only warning. Transcript had the tester’s voice only (YouTube missing). App still ran. |
+
+| Test                                                      | Result                                                                                                                                                                                                                  |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Built-in Mac mic, system audio on                         | Pass (2026-08-21). Transcript of spoken Spanish + English.                                                                                                                                                              |
+| **Headphones (AirPods / Bluetooth), YouTube + own voice** | **Pass** (2026-08-21). ~80 s mix; `micPeak` and `sysPeak` both high. Transcript contained the tester’s speech **and** YouTube speech (block times / “357”). Status: system audio on.                                    |
+| Screen Recording **denied** (mic-only fallback)           | **Pass** (2026-08-21). Cursor Screen Recording off. Helper log: TCC declined, `system=0` `sysPeak=0`. UI: system audio off + mic-only warning. Transcript had the tester’s voice only (YouTube missing). App still ran. |
+
+
