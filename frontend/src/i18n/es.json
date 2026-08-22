@@ -31,5 +31,8 @@
   "errorGeneric": "Algo salió mal",
   "levelMic": "Mic",
   "levelSystem": "Sistema",
-  "levelPillLabel": "Niveles de entrada en vivo"
+  "levelPillLabel": "Niveles de entrada en vivo",
+  "inputDevice": "Micrófono",
+  "inputDeviceNone": "Sin micrófono",
+  "errorMicLost": "Se desconectó el micrófono. Conéctalo o elige otra entrada en Ajustes de Sonido."
 }

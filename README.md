@@ -1,6 +1,6 @@
 # Notes AI — capture spike
 
-macOS meeting notepad. Headphone system audio and mic-only fallback are proven (**Step 5 pass**). **Next:** Step 4 (live level indicator), then Step 6 (reconnect the tap). No website, Google, Stripe, or notepad UI yet. Follow `PLAN.md`.
+macOS meeting notepad. Headphone system audio and mic-only fallback are proven (**Step 5 pass**). **Step 4** is the live level pill. **Step 6** shows the selected mic name and reconnects if the input changes. **Next:** Step 7 (product backend). No website, Google, Stripe, or notepad UI yet. Follow `PLAN.md`.
 
 ## Layout
 
@@ -56,10 +56,11 @@ npm start
 `npm start` builds the Swift helper, then opens the debug window.
 
 1. Choose English or Spanish in the UI (defaults from macOS language).
-2. Click **Start**. Allow **Microphone**. Allow **Screen Recording** — that permission is for **meeting sound** (Zoom / Meet / Teams / YouTube), not to save video or screenshots.
-3. If you just granted Screen Recording, click **Start** again.
-4. Play something in headphones and say a short phrase, then **Stop**.
-5. The mix (16-bit PCM WAV, mono, 16 kHz, `fmt`  + `data` only) is posted to `POST /spike/transcribe`. The transcript appears in the window.
+2. The level pill is visible immediately (**Listening — not recording**). The **Microphone** line shows the current default input (built-in, AirPods, USB mic, …). Allow **Microphone**. Allow **Screen Recording** — that permission is for **meeting sound** (Zoom / Meet / Teams / YouTube), not to save video or screenshots.
+3. If you just granted Screen Recording, click **Start** (it retries system audio). Speak or play something and confirm the **Mic** / **System** bars move. Silent or missing input → those bars stay still.
+4. Switch the default input in Sound settings (or unplug AirPods): the name should update and the mic tap should reconnect. If no mic remains, bars stay still and a warning appears. **Start** begins recording. Pause holds both still. **Stop** / **Cancel** end the recording and return to preview (the pill stays).
+5. Play something in headphones and say a short phrase, then **Stop**.
+6. The mix (16-bit PCM WAV, mono, 16 kHz, `fmt`  + `data` only) is posted to `POST /spike/transcribe`. The transcript appears in the window.
 
 Status should show **System audio: on** when Screen Recording is allowed. If it stays off, the app continues **mic-only** and warns that other people may be missing.
 
@@ -101,5 +102,6 @@ Never commit `.env`. See `.env.example` only.
 | Built-in Mac mic, system audio on                         | Pass (2026-08-21). Transcript of spoken Spanish + English.                                                                                                                                                              |
 | **Headphones (AirPods / Bluetooth), YouTube + own voice** | **Pass** (2026-08-21). ~80 s mix; `micPeak` and `sysPeak` both high. Transcript contained the tester’s speech **and** YouTube speech (block times / “357”). Status: system audio on.                                    |
 | Screen Recording **denied** (mic-only fallback)           | **Pass** (2026-08-21). Cursor Screen Recording off. Helper log: TCC declined, `system=0` `sysPeak=0`. UI: system audio off + mic-only warning. Transcript had the tester’s voice only (YouTube missing). App still ran. |
+| Selected input name + reconnect on device change (Step 6) | Pending user test. Window should show the default mic name during preview; switching input or unplugging AirPods should update the name and keep capture going (or warn if none). |
 
 

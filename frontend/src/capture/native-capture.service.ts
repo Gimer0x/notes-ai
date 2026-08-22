@@ -1,7 +1,9 @@
 import type {
   CapturedAudio,
+  CaptureDevice,
   CaptureLevels,
   CaptureService,
+  CaptureSessionInfo,
   CaptureState,
 } from './capture.service';
 import { HelperClient } from './helper-client';
@@ -9,12 +11,22 @@ import { HelperClient } from './helper-client';
 export class NativeCaptureService implements CaptureService {
   private state: CaptureState = 'idle';
   private readonly helper = new HelperClient();
-  private readonly listeners = new Set<(levels: CaptureLevels) => void>();
+  private readonly levelListeners = new Set<(levels: CaptureLevels) => void>();
+  private readonly deviceListeners = new Set<(device: CaptureDevice) => void>();
+  private lastDevice: CaptureDevice = { inputName: '' };
+  private micLost = false;
 
   constructor() {
     this.helper.onLevels((levels) => {
-      for (const listener of this.listeners) {
+      for (const listener of this.levelListeners) {
         listener(levels);
+      }
+    });
+    this.helper.onDevice((device, lost) => {
+      this.lastDevice = device;
+      this.micLost = lost;
+      for (const listener of this.deviceListeners) {
+        listener(device);
       }
     });
   }
@@ -24,27 +36,41 @@ export class NativeCaptureService implements CaptureService {
   }
 
   subscribeLevels(listener: (levels: CaptureLevels) => void): () => void {
-    this.listeners.add(listener);
+    this.levelListeners.add(listener);
     return () => {
-      this.listeners.delete(listener);
+      this.levelListeners.delete(listener);
     };
   }
 
-  async preview(): Promise<{ systemAudioEnabled: boolean }> {
+  subscribeDevice(listener: (device: CaptureDevice) => void): () => void {
+    this.deviceListeners.add(listener);
+    if (this.lastDevice.inputName || this.micLost) {
+      listener(this.lastDevice);
+    }
+    return () => {
+      this.deviceListeners.delete(listener);
+    };
+  }
+
+  isMicLost(): boolean {
+    return this.micLost;
+  }
+
+  async preview(): Promise<CaptureSessionInfo> {
     if (process.platform !== 'darwin') {
       throw new Error('macos_only');
     }
     const msg = await this.helper.send('preview');
-    return { systemAudioEnabled: Boolean(msg.systemAudioEnabled) };
+    return this.sessionFrom(msg);
   }
 
-  async start(): Promise<{ systemAudioEnabled: boolean }> {
+  async start(): Promise<CaptureSessionInfo> {
     if (process.platform !== 'darwin') {
       throw new Error('macos_only');
     }
     const msg = await this.helper.send('start');
     this.state = 'listening';
-    return { systemAudioEnabled: Boolean(msg.systemAudioEnabled) };
+    return this.sessionFrom(msg);
   }
 
   async pause(): Promise<void> {
@@ -82,12 +108,29 @@ export class NativeCaptureService implements CaptureService {
   dispose(): void {
     void this.cancel();
     this.helper.stopProcess();
-    this.listeners.clear();
+    this.levelListeners.clear();
+    this.deviceListeners.clear();
     this.state = 'idle';
   }
 
+  private sessionFrom(msg: {
+    systemAudioEnabled?: boolean;
+    inputName?: string;
+  }): CaptureSessionInfo {
+    const inputName = msg.inputName ?? this.lastDevice.inputName;
+    this.lastDevice = { inputName };
+    this.micLost = !inputName;
+    for (const listener of this.deviceListeners) {
+      listener(this.lastDevice);
+    }
+    return {
+      systemAudioEnabled: Boolean(msg.systemAudioEnabled),
+      inputName,
+    };
+  }
+
   private emitLevels(levels: CaptureLevels): void {
-    for (const listener of this.listeners) {
+    for (const listener of this.levelListeners) {
       listener(levels);
     }
   }

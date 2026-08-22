@@ -2,7 +2,7 @@ import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
-import type { CaptureLevels } from './capture.service';
+import type { CaptureDevice, CaptureLevels } from './capture.service';
 
 type HelperOk = {
   id: string;
@@ -11,6 +11,7 @@ type HelperOk = {
   filePath?: string;
   durationSeconds?: number;
   state?: string;
+  inputName?: string;
 };
 
 type HelperErr = {
@@ -25,10 +26,20 @@ type HelperLevels = {
   system: number;
 };
 
-type HelperMsg = HelperOk | HelperErr | HelperLevels;
+type HelperDevice = {
+  event: 'device';
+  inputName: string;
+  lost?: boolean;
+};
+
+type HelperMsg = HelperOk | HelperErr | HelperLevels | HelperDevice;
 
 function isLevels(msg: HelperMsg): msg is HelperLevels {
   return 'event' in msg && msg.event === 'levels';
+}
+
+function isDevice(msg: HelperMsg): msg is HelperDevice {
+  return 'event' in msg && msg.event === 'device';
 }
 
 export class HelperClient {
@@ -40,9 +51,15 @@ export class HelperClient {
     { resolve: (msg: HelperOk) => void; reject: (err: Error) => void }
   >();
   private levelsListener: ((levels: CaptureLevels) => void) | null = null;
+  private deviceListener: ((device: CaptureDevice, lost: boolean) => void) | null =
+    null;
 
   onLevels(listener: ((levels: CaptureLevels) => void) | null): void {
     this.levelsListener = listener;
+  }
+
+  onDevice(listener: ((device: CaptureDevice, lost: boolean) => void) | null): void {
+    this.deviceListener = listener;
   }
 
   startProcess(): void {
@@ -114,6 +131,13 @@ export class HelperClient {
         mic: clamp01(msg.mic),
         system: clamp01(msg.system),
       });
+      return;
+    }
+    if (isDevice(msg)) {
+      this.deviceListener?.(
+        { inputName: msg.inputName || '' },
+        Boolean(msg.lost),
+      );
       return;
     }
     const waiter = this.pending.get(msg.id);

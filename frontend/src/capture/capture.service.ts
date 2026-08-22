@@ -10,13 +10,23 @@ export type CaptureLevels = {
   system: number;
 };
 
+export type CaptureDevice = {
+  inputName: string;
+};
+
+export type CaptureSessionInfo = {
+  systemAudioEnabled: boolean;
+  inputName: string;
+};
+
 export interface CaptureService {
-  start(): Promise<{ systemAudioEnabled: boolean }>;
+  preview(): Promise<CaptureSessionInfo>;
+  start(): Promise<CaptureSessionInfo>;
   pause(): Promise<void>;
   resume(): Promise<void>;
   stop(): Promise<CapturedAudio>;
   cancel(): Promise<void>;
   getState(): CaptureState;
   subscribeLevels(listener: (levels: CaptureLevels) => void): () => void;
-  preview(): Promise<{ systemAudioEnabled: boolean }>;
+  subscribeDevice(listener: (device: CaptureDevice) => void): () => void;
 }

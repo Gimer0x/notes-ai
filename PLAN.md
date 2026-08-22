@@ -205,7 +205,7 @@ Resolve the active window from plan rules above (free 30-day slices vs Stripe mo
 
 Implement **in this order**. Each step must compile, use `.env`, follow SOLID, and update `README.md`. Do not start step N+1 until step N works.
 
-**Status:** Steps 1–3 and Step 5 (headphone gate) are done. Next to implement is Step 4 (live level indicator), then Step 6 (reconnect the tap). Product work starts at Step 7.
+**Status:** Steps 1–6 are implemented. Confirm Step 6 (device name + reconnect) in the debug window before Step 7. Product work starts at Step 7.
 
 ### Module boundaries
 
@@ -225,13 +225,15 @@ Renderer talks only to this. Native SCK / AVAudioEngine stay behind it.
 
 ```
 CaptureService
-  start(): Promise<{ systemAudioEnabled: boolean }>
+  preview(): Promise<{ systemAudioEnabled: boolean; inputName: string }>
+  start(): Promise<{ systemAudioEnabled: boolean; inputName: string }>
   pause(): Promise<void>
   resume(): Promise<void>
   stop(): Promise<CapturedAudio>
   cancel(): Promise<void>
   getState(): 'idle' | 'listening' | 'paused'
   subscribeLevels(listener: (levels: CaptureLevels) => void): () => void
+  subscribeDevice(listener: (device: CaptureDevice) => void): () => void
 
 CapturedAudio
   filePath: string          // temp WAV, 16-bit PCM mono 16 kHz
@@ -240,9 +242,12 @@ CapturedAudio
 CaptureLevels
   mic: number               // 0..1 live RMS; 0 if no mic / silent / undetected
   system: number            // 0..1 live RMS; 0 if system audio off / silent
+
+CaptureDevice
+  inputName: string         // macOS default input name (AirPods, USB mic, built-in, …)
 ```
 
-Guarantees: mixes mic + system audio (or mic-only if `systemAudioEnabled` is false). `stop()` returns **one** WAV (product HTTP layer splits by `WAV_CHUNK_SECONDS`). `cancel()` and successful upload delete the temp file. Never write into the git repo. `pause` auto-cancel timing comes from `GET /config`, not from this module. `subscribeLevels` fires only while listening (and may fire at 0,0 while paused). Do **not** rename existing methods.
+Guarantees: mixes mic + system audio (or mic-only if `systemAudioEnabled` is false). `preview()` opens the mic and system-audio taps for live levels only (no WAV buffer). `start()` begins recording into the mix. `stop()` returns **one** WAV (product HTTP layer splits by `WAV_CHUNK_SECONDS`) and returns to preview. `cancel()` and successful upload delete the temp file. Never write into the git repo. `pause` auto-cancel timing comes from `GET /config`, not from this module. `subscribeLevels` fires while previewing or recording (and may fire at 0,0 while paused). `subscribeDevice` fires whenever the selected default **input** name is known or changes (preview, Start, and live device change). Do **not** rename existing methods.
 
 #### 2. Auth (Electron ↔ backend)
 
@@ -424,18 +429,18 @@ Do not scatter these numbers in React, Swift, or Nest handlers. Audio sample rat
 
 ### Step 4 — Live level indicator (debug window)
 
-**Do:** After **Start**, show a compact **Granola-style** pill in the existing Electron debug window: a few vertical green bars driven by **live RMS** from the capture helper (not a looping CSS animation). Bars must reflect real signal from the microphone and/or system-audio tap.
+**Do:** Show a compact **Granola-style** pill in the existing Electron debug window as soon as the window opens: a few vertical green bars driven by **live RMS** from the capture helper (not a looping CSS animation). Bars must reflect real signal from the microphone and/or system-audio tap. **Start** begins recording; before that the taps are preview-only (levels, no WAV).
 
-- Show the pill only while a session is active (listening or paused). Hide it when idle / after Stop or Cancel.
+- Call `CaptureService.preview()` when the debug window loads so levels run without recording. Keep the pill visible while idle, recording, and paused. Stop / Cancel return to preview (do not hide the pill).
 - Stream levels from the helper → Electron main → renderer (`CaptureService.subscribeLevels`). `mic` and `system` are each `0..1`.
 - **If the microphone is not detected, missing, or silent:** the mic-driven bars **must not move**. Do not fake activity.
 - **If system audio is off, denied, or silent:** those bars stay still. Mic bars may still move if the mic has signal.
 - While **paused**, bars stay still (levels at 0). Resume starts motion again only if a source has signal.
 - EN/ES copy for any new status text (same i18n files as the debug window).
 
-**Do not:** Change Start/Stop/Pause mix or STT. Do not start the headphone gate write-up (already Step 5). Do not reconnect devices (Step 6). No website, Postgres, Google, or Stripe.
+**Do not:** Change the mix format or STT. Do not start the headphone gate write-up (already Step 5). Do not reconnect devices (Step 6). No website, Postgres, Google, or Stripe.
 
-**Done when:** Start shows the pill; speaking into a working mic moves the bars; mute/unplug/no-mic leaves them still; system audio with playback can move system bars; Stop hides the pill.
+**Done when:** The pill is visible before Start; speaking into a working mic moves the bars; mute/unplug/no-mic leaves them still; system audio with playback can move system bars; Start records; Stop transcribes and the pill stays up.
 
 ---
 
@@ -456,18 +461,21 @@ If checklist item 5 fails, **stop the project plan here** and fix capture. Do no
 
 ---
 
-### Step 6 — Reconnect the tap on device change
+### Step 6 — Reconnect the tap on device change + show selected input
 
-**Do:** If the default input (or system-audio route) **disconnects or changes during a listen**, **reconnect the tap** to the new default device and keep mixing. Today the helper binds the default input at Start and does not rebind; a mid-session unplug can go silent.
+**Do:** If the default input (or system-audio route) **disconnects or changes** during preview or a listen, **reconnect the tap** to the new default device and keep mixing (or keep previewing). Today the helper binds the default input once and does not rebind; a mid-session unplug can go silent.
 
-- Detect configuration / device-change while `listening` or `paused`.
+Also **show the selected microphone name** in the debug window (the macOS default input: built-in **MacBook Pro Microphone**, **Bluetooth AirPods**, USB / external mic, etc.). Update that label whenever the default input changes.
+
+- Detect configuration / device-change while previewing, `listening`, or `paused`.
 - Re-attach the mic tap (and system tap if it was enabled) to the current default. Do not restart the whole note or discard the buffer already captured.
-- If reconnect fails (no input device), keep the session, set mic level to 0, and show a short EN/ES warning that the microphone was lost. Do not crash.
+- If reconnect fails (no input device), keep the session, set mic level to 0, clear or show a “no microphone” name, and show a short EN/ES warning that the microphone was lost. Do not crash.
+- Display `CaptureDevice.inputName` next to the level pill (EN/ES label + the OS device name, which stays in the language macOS reports). Subscribe via `CaptureService.subscribeDevice` so a Sound-settings change or a reconnect updates the name without Start/Stop.
 - Log enough to debug (old device → new device, success/fail). Level bars from Step 4 should go still if the mic is gone, and move again if a new mic appears and has signal.
 
-**Do not:** Reconnect because the user pressed Start on a different device (Start already binds current default). Do not add BlackHole. Do not start Postgres (Step 7).
+**Do not:** Treat a later **Start** as a special case (Start already uses the current default). Do not add BlackHole. Do not start Postgres (Step 7).
 
-**Done when:** Unplug headphones / change default input **during** a session; capture continues on the new device (or stays silent with a warning if none); README notes the reconnect test.
+**Done when:** The window shows the current input name during preview; switching default input (or unplugging AirPods) updates the name and capture continues on the new device (or stays silent with a warning if none); README notes the reconnect + device-name test.
 
 ---
 
@@ -597,4 +605,4 @@ If checklist item 5 fails, **stop the project plan here** and fix capture. Do no
 
 ## Still open
 
-None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. Next code step is **Step 4** (live level indicator).
+None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. After Step 6 is confirmed, next code step is **Step 7** (Postgres / product backend).

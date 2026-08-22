@@ -1,13 +1,14 @@
 type Locale = 'en' | 'es';
 type Messages = Record<string, string>;
 type CaptureLevels = { mic: number; system: number };
+type CaptureDevice = { inputName: string; lost?: boolean };
 
 type PithApi = {
   getLocale: () => Promise<Locale>;
   getMessages: (locale: Locale) => Promise<Messages>;
   capture: {
-    preview: () => Promise<{ systemAudioEnabled: boolean }>;
-    start: () => Promise<{ systemAudioEnabled: boolean }>;
+    preview: () => Promise<{ systemAudioEnabled: boolean; inputName: string }>;
+    start: () => Promise<{ systemAudioEnabled: boolean; inputName: string }>;
     pause: () => Promise<void>;
     resume: () => Promise<void>;
     stop: () => Promise<{
@@ -20,6 +21,7 @@ type PithApi = {
     getState: () => Promise<'idle' | 'listening' | 'paused'>;
     resend: () => Promise<{ text: string; language: Locale }>;
     onLevels: (listener: (levels: CaptureLevels) => void) => () => void;
+    onDevice: (listener: (device: CaptureDevice) => void) => () => void;
   };
 };
 
@@ -30,6 +32,8 @@ let t: Messages = {};
 let systemAudioEnabled: boolean | null = null;
 let busy = false;
 let awaitingTranscript = false;
+let inputName = '';
+let micLost = false;
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 
@@ -54,7 +58,20 @@ function applyCopy(): void {
   $('micLevelLabel').textContent = t.levelMic;
   $('sysLevelLabel').textContent = t.levelSystem;
   $('levelPill').setAttribute('aria-label', t.levelPillLabel);
+  $('inputDeviceLabel').textContent = t.inputDevice;
   renderSystemAudio();
+  renderInputDevice();
+}
+
+function renderInputDevice(): void {
+  $('inputDeviceName').textContent = inputName.trim() ? inputName : t.inputDeviceNone;
+  $('deviceWarning').textContent = micLost ? t.errorMicLost : '';
+}
+
+function applyDevice(device: CaptureDevice): void {
+  inputName = device.inputName || '';
+  micLost = Boolean(device.lost);
+  renderInputDevice();
 }
 
 function renderSystemAudio(): void {
@@ -173,10 +190,12 @@ async function init(): Promise<void> {
   t = await pith.getMessages(locale);
   applyCopy();
   pith.capture.onLevels(applyLevels);
+  pith.capture.onDevice(applyDevice);
   await syncButtons();
   await withBusy(async () => {
     const result = await pith.capture.preview();
     systemAudioEnabled = result.systemAudioEnabled;
+    applyDevice({ inputName: result.inputName, lost: !result.inputName });
     renderSystemAudio();
   });
 
@@ -194,6 +213,7 @@ async function init(): Promise<void> {
     withBusy(async () => {
       const result = await pith.capture.start();
       systemAudioEnabled = result.systemAudioEnabled;
+      applyDevice({ inputName: result.inputName, lost: !result.inputName });
       renderSystemAudio();
     }),
   );

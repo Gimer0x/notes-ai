@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, systemPreferences } from 'electron';
 import { readFile, unlink } from 'fs/promises';
 import * as path from 'path';
-import type { CaptureLevels } from './capture/capture.service';
+import type { CaptureDevice, CaptureLevels } from './capture/capture.service';
 import { NativeCaptureService } from './capture/native-capture.service';
 import { backendUrl, captureSpikeKey, loadFrontendEnv } from './env';
 import { SpikeClient } from './spike/spike-client';
@@ -21,7 +21,17 @@ function broadcastLevels(levels: CaptureLevels): void {
   }
 }
 
+function broadcastDevice(device: CaptureDevice): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send('capture:device', {
+      inputName: device.inputName,
+      lost: capture.isMicLost(),
+    });
+  }
+}
+
 capture.subscribeLevels(broadcastLevels);
+capture.subscribeDevice(broadcastDevice);
 
 function preferredLocale(): 'en' | 'es' {
   return app.getLocale().toLowerCase().startsWith('es') ? 'es' : 'en';

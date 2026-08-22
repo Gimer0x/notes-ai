@@ -14,6 +14,7 @@ struct Outbound: Encodable {
   var filePath: String? = nil
   var durationSeconds: Double? = nil
   var state: String? = nil
+  var inputName: String? = nil
 }
 
 struct LevelsEvent: Encodable {
@@ -22,12 +23,21 @@ struct LevelsEvent: Encodable {
   let system: Double
 }
 
+struct DeviceEvent: Encodable {
+  let event = "device"
+  let inputName: String
+  let lost: Bool
+}
+
 let nsApp = NSApplication.shared
 nsApp.setActivationPolicy(.accessory)
 
 let engine = CaptureEngine()
 engine.onLevels = { mic, system in
   writeLevels(mic: mic, system: system)
+}
+engine.onDevice = { name, lost in
+  writeDevice(inputName: name, lost: lost)
 }
 let encoder = JSONEncoder()
 let decoder = JSONDecoder()
@@ -61,6 +71,15 @@ func writeLevels(mic: Double, system: Double) {
   writeStdout(Data(line.utf8))
 }
 
+func writeDevice(inputName: String, lost: Bool) {
+  let event = DeviceEvent(inputName: inputName, lost: lost)
+  guard let data = try? encoder.encode(event),
+        var line = String(data: data, encoding: .utf8)
+  else { return }
+  line.append("\n")
+  writeStdout(Data(line.utf8))
+}
+
 func fail(_ inbound: Inbound, _ error: Error) {
   let code = (error as? CaptureError)?.rawValue ?? error.localizedDescription
   writeOutbound(Outbound(id: inbound.id, ok: false, error: code))
@@ -82,11 +101,25 @@ stdin.readabilityHandler = { handle in
       do {
         switch inbound.cmd {
         case "preview":
-          let enabled = try await engine.preview()
-          writeOutbound(Outbound(id: inbound.id, ok: true, systemAudioEnabled: enabled))
+          let result = try await engine.preview()
+          writeOutbound(
+            Outbound(
+              id: inbound.id,
+              ok: true,
+              systemAudioEnabled: result.systemAudioEnabled,
+              inputName: result.inputName
+            )
+          )
         case "start":
-          let enabled = try await engine.start()
-          writeOutbound(Outbound(id: inbound.id, ok: true, systemAudioEnabled: enabled))
+          let result = try await engine.start()
+          writeOutbound(
+            Outbound(
+              id: inbound.id,
+              ok: true,
+              systemAudioEnabled: result.systemAudioEnabled,
+              inputName: result.inputName
+            )
+          )
         case "pause":
           try engine.pause()
           writeOutbound(Outbound(id: inbound.id, ok: true))

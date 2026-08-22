@@ -31,5 +31,8 @@
   "errorGeneric": "Something went wrong",
   "levelMic": "Mic",
   "levelSystem": "System",
-  "levelPillLabel": "Live input levels"
+  "levelPillLabel": "Live input levels",
+  "inputDevice": "Microphone",
+  "inputDeviceNone": "No microphone",
+  "errorMicLost": "The microphone was disconnected. Plug it in or choose another input in Sound settings."
 }

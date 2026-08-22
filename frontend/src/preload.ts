@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { CaptureLevels, CaptureState } from './capture/capture.service';
+import type { CaptureDevice, CaptureLevels, CaptureState } from './capture/capture.service';
+
+type DevicePayload = CaptureDevice & { lost?: boolean };
 
 contextBridge.exposeInMainWorld('pith', {
   getLocale: (): Promise<'en' | 'es'> => ipcRenderer.invoke('i18n:locale'),
@@ -22,5 +24,15 @@ contextBridge.exposeInMainWorld('pith', {
         ipcRenderer.removeListener('capture:levels', handler);
       };
     },
+    onDevice: (listener: (device: DevicePayload) => void): (() => void) => {
+      const handler = (_event: unknown, device: DevicePayload): void => {
+        listener(device);
+      };
+      ipcRenderer.on('capture:device', handler);
+      return () => {
+        ipcRenderer.removeListener('capture:device', handler);
+      };
+    },
   },
 });
+

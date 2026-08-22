@@ -73,8 +73,16 @@
         padding: 16px;
         min-height: 160px;
       }
-      #error {
+      #error,
+      #deviceWarning {
         color: #8b2e2e;
+      }
+      #inputDeviceRow {
+        margin: 0 0 8px;
+      }
+      #inputDeviceName {
+        color: var(--ink);
+        font-weight: 650;
       }
       [hidden] {
         display: none !important;
@@ -143,6 +151,10 @@
         <button id="resend"></button>
       </div>
       <p id="status"></p>
+      <p id="inputDeviceRow">
+        <span id="inputDeviceLabel"></span>
+        <strong id="inputDeviceName"></strong>
+      </p>
       <div
         id="levelPill"
         class="level-pill"
@@ -168,6 +180,7 @@
         </div>
       </div>
       <p id="systemAudio"></p>
+      <p id="deviceWarning"></p>
       <p id="duration"></p>
       <p id="error"></p>
       <h2 id="transcriptLabel"></h2>
