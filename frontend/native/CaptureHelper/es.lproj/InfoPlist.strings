@@ -1,0 +1,3 @@
+NSMicrophoneUsageDescription = "Pith graba el micrófono para incluir tu voz en la mezcla de la reunión. No se une a la llamada como un bot.";
+NSAudioCaptureUsageDescription = "Pith graba el micrófono para incluir tu voz en la mezcla de la reunión. No se une a la llamada como un bot.";
+NSScreenCaptureUsageDescription = "Pith captura el sonido de la reunión de otras apps (Zoom, Meet, Teams), no tu pantalla ni video.";

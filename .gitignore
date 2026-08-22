@@ -1,0 +1,16 @@
+node_modules/
+dist/
+out/
+.env
+*.log
+.DS_Store
+debug-audio/
+*.wav
+coverage/
+.idea/
+.vscode/
+frontend/release/
+backend/dist/
+frontend/dist/
+frontend/native/CaptureHelper/.build/
+frontend/native/CaptureHelper.app/

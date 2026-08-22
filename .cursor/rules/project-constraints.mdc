@@ -1,0 +1,19 @@
+---
+description: Core engineering constraints for this Granola-like MVP
+alwaysApply: true
+---
+
+# Project constraints
+
+- Three projects by the end: `backend/`, `website/`, `frontend/`. **Build capture first** (backend transcribe spike + Electron mix). Do not start Google, Stripe, or the website until a headphone transcript proves system audio.
+- Reusable modules (auth, workspaces, notes, listening/capture, summarization, billing). macOS **14.2+** capture: **AVAudioEngine** (mic) + **ScreenCaptureKit** (system audio only, no video). Mix to 16-bit PCM mono 16 kHz. Do not use Core Audio process taps. Never record screen/video. Never install virtual audio drivers.
+- First ship is **macOS only**. Prepare electron-builder for a future Windows `.exe`; do not build or test Windows unless asked.
+- **Stripe Checkout is in scope**, in the **system browser**, returning to the **website**. Never embed Checkout in an Electron webview. Isolate Stripe in a billing module. Notes, listening, and auth must not import Stripe.
+- Electron Google login: **system browser**, **PKCE**, **loopback** (`http://127.0.0.1:<port>/callback`). Backend exchanges the code and issues a JWT stored in `safeStorage`. No embedded webview, no custom URL scheme. The website uses a separate Google **Web** client and httpOnly cookies.
+- Plan limits live in the `plans` table (admin/SQL), not scattered constants. Pause, min listen, upload retry, and WAV chunk length live in **backend `.env`** (`PAUSE_AUTO_CANCEL_SECONDS`, etc.) and are exposed by **`GET /config`**. Do not hard-code 20 minutes, 10 minutes, or 30 seconds in the client or Nest handlers.
+- **`POST /spike/transcribe` is dev-only.** Protect it with `CAPTURE_SPIKE_KEY` from `.env` (header `X-Spike-Key`). Never commit the key. Never enable this route on a public/production server. After capture is proven, transcribe only for signed-in users behind quotas; disable the spike outside `NODE_ENV=development`.
+- Every feature must update `README.md`.
+- Mixed audio is **16-bit PCM WAV, mono, 16 kHz**. Spike uploads one WAV. Product `POST /notes/:id/stop` splits into **≤ 10 minute** WAV parts, STT each, then one GPT summary. No MP3/WebM/AAC in this MVP.
+- Delete workspace only if it has no notes; never delete the last workspace. Pause auto-cancels after **`PAUSE_AUTO_CANCEL_SECONDS`**. Offline: buffer locally; retry upload **`UPLOAD_RETRY_SECONDS`** on Stop then discard. Quit discards unsent audio. Failed notes: Retry STT if WAV still in job temp, else Retry GPT from `transcript_text`; never persist WAV overnight.
+- Implement **Interface contracts** and the **Backend API contract** in `PLAN.md`. Do not rename `CaptureService` methods, `/notes/:id/stop`, `/auth/electron/callback`, or `GET /me`. Notes never import Stripe or OpenAI.
+- Website and Electron UI: **English and Spanish** (i18n files, toggle, browser default). Do not hard-code user-facing copy in one language. Meeting summaries still follow the **meeting** language (`en` / `es`), independent of the UI.

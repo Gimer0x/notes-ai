@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'"
+    />
+    <title>Pith Capture Spike</title>
+    <style>
+      :root {
+        --page: #f7f4ee;
+        --ink: #1c1c19;
+        --cta: #5f6f4a;
+        --muted: #5c5c56;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--page);
+        color: var(--ink);
+        font-family: system-ui, sans-serif;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      h1 {
+        font-size: 1.4rem;
+        font-weight: 650;
+        margin: 0 0 12px;
+      }
+      p,
+      label {
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 16px 0;
+        align-items: center;
+      }
+      button,
+      select {
+        font: inherit;
+        border-radius: 8px;
+        border: 1px solid #d4d0c8;
+        padding: 8px 14px;
+        background: #fff;
+        color: var(--ink);
+      }
+      button.primary {
+        background: var(--cta);
+        color: #fff;
+        border-color: var(--cta);
+      }
+      button:disabled {
+        opacity: 0.45;
+      }
+      #status {
+        font-weight: 600;
+        color: var(--ink);
+      }
+      #transcript {
+        white-space: pre-wrap;
+        background: #fff;
+        border: 1px solid #e6e1d6;
+        border-radius: 10px;
+        padding: 16px;
+        min-height: 160px;
+      }
+      #error {
+        color: #8b2e2e;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1 id="title"></h1>
+      <div class="row">
+        <label for="lang" id="languageLabel"></label>
+        <select id="lang">
+          <option value="en"></option>
+          <option value="es"></option>
+        </select>
+      </div>
+      <p id="permissionHint"></p>
+      <p id="grantAgain"></p>
+      <div class="row">
+        <button class="primary" id="start"></button>
+        <button id="pause"></button>
+        <button id="resume"></button>
+        <button id="stop"></button>
+        <button id="cancel"></button>
+        <button id="resend"></button>
+      </div>
+      <p id="status"></p>
+      <p id="systemAudio"></p>
+      <p id="duration"></p>
+      <p id="error"></p>
+      <h2 id="transcriptLabel"></h2>
+      <div id="transcript"></div>
+    </main>
+    <script src="./debug.js"></script>
+  </body>
+</html>
