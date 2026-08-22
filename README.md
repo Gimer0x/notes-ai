@@ -1,12 +1,12 @@
-# Notes AI — capture spike
+# Pith
 
-macOS meeting notepad. Capture (Steps 1–6) is proven. **Step 7** is the product backend: Postgres schema, seeded `plans`, internal transcribe, `GET /config`. Spike transcribe stays **dev-only**. No website, Google, Stripe Checkout, or notepad UI yet. Follow `PLAN.md`.
+macOS meeting notepad. Capture (Steps 1–6) is proven. **Step 7** is the product backend: Postgres schema, seeded `plans`, internal transcribe, `GET /config`. **Step 8** is the public website (landing, pricing copy, download placeholder, Sign in / Sign out preview, English/Spanish). Google OAuth and Stripe Checkout are later. Spike transcribe stays **dev-only**. Follow `PLAN.md`.
 
 ## Layout
 
 - `backend/` — NestJS API (`GET /health`, `GET /config`, Postgres schema). `POST /spike/transcribe` only when `NODE_ENV=development` and `CAPTURE_SPIKE_KEY` is set.
 - `frontend/` — Electron debug window + native **Pith Capture Helper** (AVAudioEngine + ScreenCaptureKit)
-- `website/` — not created until Step 8
+- `website/` — public site (Vite + React). No notepad, no capture.
 
 ## Prerequisites
 
@@ -23,6 +23,7 @@ macOS meeting notepad. Capture (Steps 1–6) is proven. **Step 7** is the produc
 ```bash
 cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
+cp website/.env.example website/.env
 ```
 
 In `backend/.env` set `OPENAI_API_KEY`, `CAPTURE_SPIKE_KEY`, and `DATABASE_URL` (see `.env.example`). Quota caps live in the `plans` table, not in code. Pause / min-listen / upload-retry / WAV chunk length live in backend env and `GET /config`.
@@ -56,6 +57,21 @@ If you already run Homebrew Postgres, create a `pith` database and set `DATABASE
 ```bash
 docker compose exec postgres psql -U pith -c 'SELECT code, max_listening_seconds_per_window, max_notes_per_window FROM plans;'
 ```
+
+## Run — website (Step 8)
+
+```bash
+cd website
+npm install
+npm run dev
+```
+
+Open http://localhost:5173. The site is usable without the Mac app. Look is **cream + burnt orange**: pith cream `#FAF7F1`, CTA `#C65A2E`, peach wash on the badge/collage. Headlines are **Sora** (wide geometric, like the wordmark); UI is **Source Sans 3**. Name stays **Pith**.
+
+1. Confirm the landing page (product pitch + **Download for Mac**, which is a placeholder until the installer exists).
+2. Open **Pricing**. Monthly vs yearly copy is display-only; **Choose monthly** / **Choose yearly** do not charge (Stripe is Step 10). Displayed USD amounts come from `website/.env` (`VITE_PRICE_MONTHLY_USD`, `VITE_PRICE_YEARLY_USD`), not from Nest or Stripe.
+3. Copy is **English** or **Spanish** from the browser/OS language (`navigator.languages`). Anything other than Spanish defaults to English. There is no language toggle on the website.
+4. **Sign in with Google** / **Sign out** are a local preview only (no Google yet). Real OAuth is Step 9.
 
 ## Run — Electron capture (Step 3)
 

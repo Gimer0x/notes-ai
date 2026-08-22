@@ -205,7 +205,7 @@ Resolve the active window from plan rules above (free 30-day slices vs Stripe mo
 
 Implement **in this order**. Each step must compile, use `.env`, follow SOLID, and update `README.md`. Do not start step N+1 until step N works.
 
-**Status:** Steps 1–7 are implemented. Confirm Postgres seed + `GET /config` before Step 8. Website is Step 8.
+**Status:** Steps 1–8 are implemented. Confirm the public website (EN/ES, landing, pricing, download placeholder, Sign in / Sign out preview) before Step 9 (Google OAuth).
 
 ### Module boundaries
 
@@ -493,7 +493,7 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 
 ### Step 8 — Public website (logged-out)
 
-**Do:** Add `website/`. Landing, download placeholder, Sign in with Google, Sign out, pricing copy (monthly vs yearly). **UI in English and Spanish:** locale files (`en`, `es`), default from the browser, **language toggle** (persisted in localStorage). No notepad. No capture.
+**Do:** Add `website/`. Landing, download placeholder, Sign in with Google, Sign out, pricing copy (monthly vs yearly). **UI in English and Spanish:** locale files (`en`, `es`). Language comes from the browser/OS (`navigator.languages`); anything other than Spanish defaults to **English**. No language toggle on the website. No notepad. No capture.
 
 **Done when:** Website is usable in a browser without the Mac app, in both English and Spanish.
 
@@ -605,4 +605,4 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 
 ## Still open
 
-None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. After Step 7 is confirmed, next code step is **Step 8** (public website).
+None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. After Step 8 is confirmed, next code step is **Step 9** (Google login).
