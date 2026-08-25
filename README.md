@@ -1,10 +1,10 @@
 # Pith
 
-macOS meeting notepad. Capture (Steps 1–6) is proven. **Step 7** is the product backend. **Step 8** is the public website. **Step 9** is Google login (website cookie + Electron PKCE/JWT). Stripe Checkout is later. Spike transcribe stays **dev-only**. Follow `PLAN.md`.
+macOS meeting notepad. Capture (Steps 1–6) is proven. **Steps 7–10** cover the product backend, public website, Google login, and Stripe Checkout. Spike transcribe stays **dev-only**. Follow `PLAN.md`.
 
 ## Layout
 
-- `backend/` — NestJS API (`GET /health`, `GET /config`, `GET /me`, Google auth). `POST /spike/transcribe` only when `NODE_ENV=development` and `CAPTURE_SPIKE_KEY` is set.
+- `backend/` — NestJS API (`GET /health`, `GET /config`, `GET /me`, Google auth, Stripe Checkout + webhook). `POST /spike/transcribe` only when `NODE_ENV=development` and `CAPTURE_SPIKE_KEY` is set.
 - `frontend/` — Electron debug window + native **Pith Capture Helper** (AVAudioEngine + ScreenCaptureKit)
 - `website/` — public site (Vite + React). No notepad, no capture.
 
@@ -26,7 +26,7 @@ cp frontend/.env.example frontend/.env
 cp website/.env.example website/.env
 ```
 
-In `backend/.env` set `OPENAI_API_KEY`, `CAPTURE_SPIKE_KEY`, `DATABASE_URL`, and `JWT_SECRET` (see `.env.example`). Quota caps live in the `plans` table, not in code. Pause / min-listen / upload-retry / WAV chunk length live in backend env and `GET /config`.
+In `backend/.env` set `OPENAI_API_KEY`, `CAPTURE_SPIKE_KEY`, `DATABASE_URL`, `JWT_SECRET`, and the Stripe keys below (see `.env.example`). Quota caps live in the `plans` table, not in code. Pause / min-listen / upload-retry / WAV chunk length live in backend env and `GET /config`.
 
 Never commit `.env`. `POST /spike/transcribe` is **dev-only** (`NODE_ENV=development` plus `CAPTURE_SPIKE_KEY`). `npm start` in backend sets `NODE_ENV=production` and does not register the spike route.
 
@@ -37,15 +37,37 @@ Create **two** OAuth clients in Google Cloud (APIs & Services → Credentials). 
 1. **Desktop** app. Put the client id in `backend/.env` (`GOOGLE_DESKTOP_CLIENT_ID`) and `frontend/.env` (`GOOGLE_DESKTOP_CLIENT_ID`). Put the client secret only in `backend/.env` (`GOOGLE_DESKTOP_CLIENT_SECRET`).
 2. **Web** application. Authorized JavaScript origins: `http://localhost:5173`. Authorized redirect URIs: `http://localhost:5173/auth/callback`. Put the client id in `backend/.env` (`GOOGLE_WEB_CLIENT_ID`) and `website/.env` (`VITE_GOOGLE_WEB_CLIENT_ID`). Put the client secret only in `backend/.env` (`GOOGLE_WEB_CLIENT_SECRET`).
 
-Also set `WEBSITE_URL=http://localhost:5173`. Add your Gmail as a test user on the OAuth consent screen while the app is in Testing.
+Also set `WEBSITE_URL=http://localhost:5173` (backend and frontend). Add your Gmail as a test user on the OAuth consent screen while the app is in Testing.
 
 In `frontend/.env` set:
 
 - `BACKEND_URL=http://localhost:3000`
+- `WEBSITE_URL=http://localhost:5173` — Upgrade opens this origin in the **system browser**
 - `CAPTURE_SPIKE_KEY` — **the same value** as backend (Electron **main** sends `X-Spike-Key`; the window never sees it)
 - `GOOGLE_DESKTOP_CLIENT_ID` — public Desktop client id (the secret stays on the backend)
 
-In `website/.env` set `VITE_API_URL=http://localhost:3000` and `VITE_GOOGLE_WEB_CLIENT_ID`.
+In `website/.env` set `VITE_API_URL=http://localhost:3000` and `VITE_GOOGLE_WEB_CLIENT_ID`. Displayed USD amounts on Pricing come from `VITE_PRICE_MONTHLY_USD` and `VITE_PRICE_YEARLY_USD` (labels only). Checkout charges the Stripe Price ids, not those display strings.
+
+### Stripe Checkout (Step 10)
+
+Use **test mode**. Create two recurring Prices (USD) — monthly **$7.99** and yearly **$87.99** — then put the Price ids in `backend/.env`:
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_PRICE_ID_MONTHLY`
+- `STRIPE_PRICE_ID_YEARLY`
+
+On API boot those Price ids are copied onto the `paid` row in `plans`. Caps still come from the `plans` table (`max_listening_seconds_per_window`, `max_notes_per_window`). Changing those SQL columns changes remaining quota on `GET /me` without a code change. `max_notes_per_window = 0` on paid means unlimited notes.
+
+Forward webhooks while developing:
+
+```bash
+stripe listen --forward-to localhost:3000/billing/webhook
+```
+
+Paste the CLI signing secret into `STRIPE_WEBHOOK_SECRET`. The webhook (`checkout.session.completed`, `customer.subscription.updated` / `deleted`) is what sets `plan_code = paid`. Checkout never runs inside Electron.
+
+Test card: `4242 4242 4242 4242`, any future expiry, any CVC.
 
 ## Run — backend
 
@@ -62,7 +84,7 @@ npm run start:dev
 
 `curl http://localhost:3000/config` → timings from `.env` (`minListenSeconds`, pause, upload retry, WAV chunk).
 
-On boot the API creates tables and seeds `plans` (`free` and `paid`). Price amounts are not stored in code; Stripe price ids stay null until Step 10.
+On boot the API creates tables and seeds `plans` (`free` and `paid`). Price **amounts** are not stored in code; Stripe Price **ids** come from `STRIPE_PRICE_ID_*` in `.env` and are written onto the paid plan row.
 
 If you already run Homebrew Postgres, create a `pith` database and set `DATABASE_URL` (for example `postgres://localhost:5432/pith`) instead of Docker.
 
@@ -70,7 +92,7 @@ If you already run Homebrew Postgres, create a `pith` database and set `DATABASE
 docker compose exec postgres psql -U pith -c 'SELECT code, max_listening_seconds_per_window, max_notes_per_window FROM plans;'
 ```
 
-## Run — website (Step 8 + 9)
+## Run — website (Step 8–10)
 
 ```bash
 cd website
@@ -81,11 +103,12 @@ npm run dev
 Open http://localhost:5173. The site is usable without the Mac app. Look is **cream + burnt orange**: pith cream `#FAF7F1`, CTA `#C65A2E`, peach wash on the badge/collage. Headlines are **Sora** (wide geometric, like the wordmark); UI is **Source Sans 3**. Name stays **Pith**.
 
 1. Confirm the landing page (product pitch + **Download for Mac**, which is a placeholder until the installer exists).
-2. Open **Pricing**. Monthly vs yearly copy is display-only; **Choose monthly** / **Choose yearly** do not charge (Stripe is Step 10). Displayed USD amounts come from `website/.env` (`VITE_PRICE_MONTHLY_USD`, `VITE_PRICE_YEARLY_USD`), not from Nest or Stripe.
-3. Copy is **English** or **Spanish** from the browser/OS language (`navigator.languages`). Anything other than Spanish defaults to English. There is no language toggle on the website.
-4. **Sign in with Google** opens Google in this browser. The session is an **httpOnly** cookie on the API (`POST /auth/web/callback`). **Sign out** clears it (`POST /auth/logout`). `GET /me` returns the user, `plan` (`free` on first login), and remaining quota. While signed in, the header shows your email and plan (Free / Paid).
+2. Open **Pricing**. **Choose monthly** / **Choose yearly** create a Stripe Checkout Session (`POST /billing/checkout-session`) and redirect this browser to Stripe. Sign in first if you have not. Paid users see disabled buttons. Displayed USD amounts come from `website/.env` (`VITE_PRICE_MONTHLY_USD`, `VITE_PRICE_YEARLY_USD`); the charge is the Stripe Price.
+3. After a successful test payment, Stripe returns to **Account** (`/account?checkout=success`). Keep `stripe listen` running so the webhook can set `paid`. Account shows remaining minutes and notes from `GET /me`.
+4. Copy is **English** or **Spanish** from the browser/OS language (`navigator.languages`). Anything other than Spanish defaults to English. There is no language toggle on the website.
+5. **Sign in with Google** opens Google in this browser. The session is an **httpOnly** cookie on the API (`POST /auth/web/callback`). **Sign out** clears it (`POST /auth/logout`). `GET /me` returns the user, `plan` (`free` / `paid`), `planInterval` (`month` / `year` / null), and remaining quota (`Cache-Control: no-store`). While signed in, the header shows your email and plan (Free / Paid monthly / Paid yearly) and an **Account** link.
 
-## Run — Electron capture (Step 3 + 9)
+## Run — Electron capture (Step 3 + 9–10)
 
 Keep the backend running. In a second terminal:
 
@@ -97,7 +120,9 @@ npm start
 
 `npm start` builds the Swift helper, then opens the debug window.
 
-**Sign in with Google** in the debug window opens the **system browser** (not an embedded webview). Google redirects to `http://127.0.0.1:<port>/callback`. Electron sends `code` + `codeVerifier` to `POST /auth/electron/callback` and stores the JWT in **safeStorage**. The same Gmail as the website is one `users` row. While signed in, the window shows your email and plan. **Sign out** deletes the local token.
+**Sign in with Google** in the debug window opens the **system browser** (not an embedded webview). Google redirects to `http://127.0.0.1:<port>/callback` so Electron can receive the `code` — that tab is **not** the public website. After the token is stored, Pith comes to the front and shows your email and plan. The callback tab explains that and tries to close. Electron sends `code` + `codeVerifier` to `POST /auth/electron/callback` and stores the JWT in **safeStorage**. The same Gmail as the website is one `users` row. Website and Electron sessions stay independent (signing in on one does not log the other in). **Upgrade** (free only) opens the website pricing page in the **system browser** — never Checkout in a webview. After you pay, click back to the app (it refreshes `GET /me`). **Sign out** deletes the local token.
+
+This MVP does not use a custom URL scheme (`pith://`), so a browser tab cannot launch the Mac app. Sign in from the app that is already open; after Google, that window is focused.
 
 1. Choose English or Spanish in the UI (defaults from macOS language).
 2. The level pill is visible immediately (**Listening — not recording**). The **Microphone** line shows the current default input (built-in, AirPods, USB mic, …). Allow **Microphone**. Allow **Screen Recording** — that permission is for **meeting sound** (Zoom / Meet / Teams / YouTube), not to save video or screenshots.

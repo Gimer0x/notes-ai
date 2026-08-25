@@ -1,9 +1,12 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { readPublicAppConfig } from '../config/app-config';
 import { DbService } from '../db/db.service';
 import type { UserRow } from '../users/user.types';
 
 export type BillingStatus = {
   plan: 'free' | 'paid';
+  planInterval: 'month' | 'year' | null;
   remainingSeconds: number;
   remainingNotes: number | null;
 };
@@ -24,7 +27,10 @@ const FREE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class BillingService {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly config: ConfigService,
+  ) {}
 
   async getStatus(userId: string): Promise<BillingStatus> {
     const userResult = await this.db.query<UserRow>(
@@ -35,6 +41,8 @@ export class BillingService {
          display_name,
          plan_code,
          created_at,
+         stripe_customer_id,
+         stripe_price_id,
          subscription_period_start,
          subscription_period_end
        FROM users
@@ -66,9 +74,46 @@ export class BillingService {
       : Math.max(0, (plan.max_notes_per_window ?? 0) - usage.notes_counted);
     return {
       plan: user.plan_code,
+      planInterval: await this.intervalFor(user),
       remainingSeconds,
       remainingNotes,
     };
+  }
+
+  async canStartNote(
+    userId: string,
+  ): Promise<{ allowed: boolean; reason?: string }> {
+    const status = await this.getStatus(userId);
+    const minListen = readPublicAppConfig(this.config).minListenSeconds;
+    if (status.remainingSeconds < minListen) {
+      return { allowed: false, reason: 'no_listening_time' };
+    }
+    if (status.remainingNotes === 0) {
+      return { allowed: false, reason: 'no_notes' };
+    }
+    return { allowed: true };
+  }
+
+  private async intervalFor(user: UserRow): Promise<'month' | 'year' | null> {
+    if (user.plan_code !== 'paid') {
+      return null;
+    }
+    const prices = await this.db.query<{
+      monthly: string | null;
+      yearly: string | null;
+    }>(
+      `SELECT stripe_price_id_monthly AS monthly, stripe_price_id_yearly AS yearly
+       FROM plans WHERE code = 'paid'`,
+    );
+    const row = prices.rows[0];
+    const priceId = user.stripe_price_id?.trim() ?? '';
+    if (priceId && row?.yearly && priceId === row.yearly) {
+      return 'year';
+    }
+    if (priceId && row?.monthly && priceId === row.monthly) {
+      return 'month';
+    }
+    return null;
   }
 
   private async ensureWindow(

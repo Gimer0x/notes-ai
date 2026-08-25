@@ -41,6 +41,12 @@
   "signedOut": "Sin sesión",
   "planFree": "Gratis",
   "planPaid": "De pago",
+  "planPaidMonthly": "De pago mensual",
+  "planPaidYearly": "De pago anual",
+  "upgrade": "Mejorar plan",
+  "remainingTime": "{minutes} minutos restantes",
+  "remainingNotesCount": "{count} notas restantes",
+  "remainingNotesUnlimited": "Notas ilimitadas",
   "errorAuth": "No se pudo iniciar sesión con Google",
   "errorNoGoogleClient": "Falta GOOGLE_DESKTOP_CLIENT_ID en frontend/.env"
 }

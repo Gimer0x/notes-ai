@@ -1,10 +1,10 @@
-import { app, BrowserWindow, ipcMain, systemPreferences } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, systemPreferences } from 'electron';
 import { readFile, unlink } from 'fs/promises';
 import * as path from 'path';
 import { AuthService } from './auth/auth.service';
 import type { CaptureDevice, CaptureLevels } from './capture/capture.service';
 import { NativeCaptureService } from './capture/native-capture.service';
-import { backendUrl, captureSpikeKey, loadFrontendEnv } from './env';
+import { backendUrl, captureSpikeKey, loadFrontendEnv, websiteUrl } from './env';
 import { SpikeClient } from './spike/spike-client';
 import en from './i18n/en.json';
 import es from './i18n/es.json';
@@ -73,6 +73,9 @@ ipcMain.handle('auth:me', async () => {
     return null;
   }
   return response.json();
+});
+ipcMain.handle('billing:upgrade', async () => {
+  await shell.openExternal(`${websiteUrl()}/pricing`);
 });
 ipcMain.handle('capture:preview', async () => {
   const result = await capture.preview();

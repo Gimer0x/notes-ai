@@ -205,7 +205,7 @@ Resolve the active window from plan rules above (free 30-day slices vs Stripe mo
 
 Implement **in this order**. Each step must compile, use `.env`, follow SOLID, and update `README.md`. Do not start step N+1 until step N works.
 
-**Status:** Steps 1–9 are implemented. Confirm Google sign-in on the website and Electron (same Gmail → one `users` row) before Step 10 (Stripe).
+**Status:** Steps 1–10 are implemented. Confirm test-mode Checkout flips `paid` and remaining quota shows (website Account + Electron) before Step 11 (Electron shell).
 
 ### Module boundaries
 
@@ -300,13 +300,14 @@ Retry: STT if WAV still in job temp; else GPT if `transcript_text` is set.
 BillingService (backend)
   getStatus(userId): Promise<{
     plan: 'free' | 'paid'
+    planInterval: 'month' | 'year' | null
     remainingSeconds: number
     remainingNotes: number | null   // null = unlimited
   }>
   canStartNote(userId): Promise<{ allowed: boolean; reason?: string }>
 ```
 
-HTTP: **`GET /me`** includes `plan`, `remainingSeconds`, `remainingNotes` (do not add `/billing/status` or `/quota`).  
+HTTP: **`GET /me`** includes `plan`, `planInterval` (`month` | `year` | null), `remainingSeconds`, `remainingNotes` (do not add `/billing/status` or `/quota`).  
 `POST /billing/checkout-session` body `{ interval: 'month' | 'year' }` returns `{ url }`.  
 `POST /billing/webhook` is Stripe-only.  
 Before `POST /workspaces/:id/notes`, the notes module calls `canStartNote`. If `allowed` is false, 403 with `reason`.
@@ -605,4 +606,4 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 
 ## Still open
 
-None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. After Step 9 is confirmed, next code step is **Step 10** (Stripe Checkout).
+None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. After Step 10 is confirmed, next code step is **Step 11** (Electron shell + workspaces + notes list).

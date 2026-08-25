@@ -14,9 +14,11 @@ type PithApi = {
       email: string;
       displayName: string | null;
       plan: 'free' | 'paid';
+      planInterval: 'month' | 'year' | null;
       remainingSeconds: number;
       remainingNotes: number | null;
     } | null>;
+    upgrade: () => Promise<void>;
   };
   capture: {
     preview: () => Promise<{ systemAudioEnabled: boolean; inputName: string }>;
@@ -87,17 +89,43 @@ function applyDevice(device: CaptureDevice): void {
   renderInputDevice();
 }
 
+function planLabel(me: {
+  plan: 'free' | 'paid';
+  planInterval: 'month' | 'year' | null;
+}): string {
+  if (me.plan !== 'paid') {
+    return t.planFree;
+  }
+  if (me.planInterval === 'year') {
+    return t.planPaidYearly;
+  }
+  if (me.planInterval === 'month') {
+    return t.planPaidMonthly;
+  }
+  return t.planPaid;
+}
+
 async function renderAuth(): Promise<void> {
   const me = await pith.auth.me();
   $('authStatus').textContent = me
-    ? t.signedInAs
-        .replace('{email}', me.email)
-        .replace('{plan}', me.plan === 'paid' ? t.planPaid : t.planFree)
+    ? t.signedInAs.replace('{email}', me.email).replace('{plan}', planLabel(me))
     : t.signedOut;
   ($('signIn') as HTMLButtonElement).hidden = Boolean(me);
   ($('signOut') as HTMLButtonElement).hidden = !me;
   $('signIn').textContent = t.signIn;
   $('signOut').textContent = t.signOut;
+  $('upgrade').textContent = t.upgrade;
+  ($('upgrade') as HTMLButtonElement).hidden = !me || me.plan === 'paid';
+  if (!me) {
+    $('quota').textContent = '';
+    return;
+  }
+  const minutes = Math.floor(me.remainingSeconds / 60);
+  const notesLine =
+    me.remainingNotes === null
+      ? t.remainingNotesUnlimited
+      : t.remainingNotesCount.replace('{count}', String(me.remainingNotes));
+  $('quota').textContent = `${t.remainingTime.replace('{minutes}', String(minutes))} · ${notesLine}`;
 }
 
 function renderSystemAudio(): void {
@@ -261,6 +289,16 @@ async function init(): Promise<void> {
       await renderAuth();
     }),
   );
+  $('upgrade').addEventListener('click', () =>
+    withBusy(async () => {
+      await pith.auth.upgrade();
+    }),
+  );
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      void renderAuth();
+    }
+  });
   $('start').addEventListener('click', () =>
     withBusy(async () => {
       const result = await pith.capture.start();

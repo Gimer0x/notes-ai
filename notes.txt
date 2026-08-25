@@ -1,3 +1,12 @@
 
 
 psql postgres://localhost:5432/pith -c 'SELECT email, plan_code, google_subject, created_at FROM users;'
+
+stripe listen --forward-to localhost:3000/billing/webhook
+
+
+Number: 4242 4242 4242 4242
+Expiry: any future date, e.g. 12 / 34
+CVC: any 3 digits, e.g. 123
+Name: anything, e.g. Test User
+Country: leave Mexico or pick any

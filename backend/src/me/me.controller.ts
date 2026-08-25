@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Header, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUserId } from '../auth/current-user';
 import { BillingService } from '../billing/billing.service';
@@ -9,6 +9,7 @@ export type MeResponse = {
   email: string;
   displayName: string | null;
   plan: 'free' | 'paid';
+  planInterval: 'month' | 'year' | null;
   remainingSeconds: number;
   remainingNotes: number | null;
 };
@@ -22,6 +23,7 @@ export class MeController {
   ) {}
 
   @Get()
+  @Header('Cache-Control', 'no-store')
   async me(@CurrentUserId() userId: string): Promise<MeResponse> {
     const user = await this.users.findById(userId);
     if (!user) {
@@ -33,6 +35,7 @@ export class MeController {
       email: user.email,
       displayName: user.display_name,
       plan: status.plan,
+      planInterval: status.planInterval,
       remainingSeconds: status.remainingSeconds,
       remainingNotes: status.remainingNotes,
     };

@@ -41,6 +41,12 @@
   "signedOut": "Not signed in",
   "planFree": "Free",
   "planPaid": "Paid",
+  "planPaidMonthly": "Paid monthly",
+  "planPaidYearly": "Paid yearly",
+  "upgrade": "Upgrade",
+  "remainingTime": "{minutes} minutes left",
+  "remainingNotesCount": "{count} notes left",
+  "remainingNotesUnlimited": "Unlimited notes",
   "errorAuth": "Google sign-in failed",
   "errorNoGoogleClient": "GOOGLE_DESKTOP_CLIENT_ID is missing in frontend/.env"
 }

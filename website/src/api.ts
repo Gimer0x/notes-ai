@@ -3,6 +3,7 @@ export type MeResponse = {
   email: string;
   displayName: string | null;
   plan: 'free' | 'paid';
+  planInterval: 'month' | 'year' | null;
   remainingSeconds: number;
   remainingNotes: number | null;
 };

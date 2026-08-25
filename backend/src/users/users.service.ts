@@ -21,6 +21,8 @@ export class UsersService {
          display_name,
          plan_code,
          created_at,
+         stripe_customer_id,
+         stripe_price_id,
          subscription_period_start,
          subscription_period_end`,
       [identity.subject, identity.email, identity.displayName],
@@ -41,11 +43,33 @@ export class UsersService {
          display_name,
          plan_code,
          created_at,
+         stripe_customer_id,
+         stripe_price_id,
          subscription_period_start,
          subscription_period_end
        FROM users
        WHERE id = $1`,
       [id],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async findByStripeCustomerId(customerId: string): Promise<UserRow | null> {
+    const result = await this.db.query<UserRow>(
+      `SELECT
+         id,
+         google_subject,
+         email,
+         display_name,
+         plan_code,
+         created_at,
+         stripe_customer_id,
+         stripe_price_id,
+         subscription_period_start,
+         subscription_period_end
+       FROM users
+       WHERE stripe_customer_id = $1`,
+      [customerId],
     );
     return result.rows[0] ?? null;
   }

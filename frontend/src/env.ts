@@ -16,3 +16,7 @@ export function captureSpikeKey(): string {
 export function googleDesktopClientId(): string {
   return process.env.GOOGLE_DESKTOP_CLIENT_ID?.trim() || '';
 }
+
+export function websiteUrl(): string {
+  return (process.env.WEBSITE_URL?.trim() || 'http://localhost:5173').replace(/\/$/, '');
+}

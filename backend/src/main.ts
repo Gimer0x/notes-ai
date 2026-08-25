@@ -10,7 +10,7 @@ function corsOrigins(): (string | RegExp)[] {
 }
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   app.use(cookieParser());
   app.enableCors({
     origin: corsOrigins(),

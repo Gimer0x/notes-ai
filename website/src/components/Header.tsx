@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { useI18n } from '../i18n/I18nProvider';
+import { planLabel } from '../i18n/planLabel';
 
 export function Header() {
   const { t } = useI18n();
@@ -17,12 +18,13 @@ export function Header() {
             {t.navHome}
           </NavLink>
           <NavLink to="/pricing">{t.navPricing}</NavLink>
+          {signedIn ? <NavLink to="/account">{t.navAccount}</NavLink> : null}
           {signedIn ? (
             <>
               <span className="status">
                 {t.signedInAs
                   .replace('{email}', me?.email ?? '')
-                  .replace('{plan}', me?.plan === 'paid' ? t.planPaid : t.planFree)}
+                  .replace('{plan}', me ? planLabel(me, t) : t.planFree)}
               </span>
               <button type="button" className="secondary" onClick={() => void signOut()}>
                 {t.signOut}
