@@ -12,3 +12,7 @@ export function backendUrl(): string {
 export function captureSpikeKey(): string {
   return process.env.CAPTURE_SPIKE_KEY?.trim() || '';
 }
+
+export function googleDesktopClientId(): string {
+  return process.env.GOOGLE_DESKTOP_CLIENT_ID?.trim() || '';
+}

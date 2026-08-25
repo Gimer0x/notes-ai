@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, systemPreferences } from 'electron';
 import { readFile, unlink } from 'fs/promises';
 import * as path from 'path';
+import { AuthService } from './auth/auth.service';
 import type { CaptureDevice, CaptureLevels } from './capture/capture.service';
 import { NativeCaptureService } from './capture/native-capture.service';
 import { backendUrl, captureSpikeKey, loadFrontendEnv } from './env';
@@ -12,6 +13,7 @@ loadFrontendEnv();
 
 const capture = new NativeCaptureService();
 const spike = new SpikeClient(backendUrl(), captureSpikeKey());
+const auth = new AuthService();
 let lastMix: Buffer | null = null;
 let lastSystemAudioEnabled = false;
 
@@ -56,6 +58,21 @@ function createWindow(): void {
 ipcMain.handle('i18n:locale', () => preferredLocale());
 ipcMain.handle('i18n:messages', (_event, locale: 'en' | 'es') => {
   return locale === 'es' ? es : en;
+});
+ipcMain.handle('auth:login', () => auth.login());
+ipcMain.handle('auth:logout', () => auth.logout());
+ipcMain.handle('auth:me', async () => {
+  const token = await auth.getAccessToken();
+  if (!token) {
+    return null;
+  }
+  const response = await fetch(`${backendUrl()}/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    return null;
+  }
+  return response.json();
 });
 ipcMain.handle('capture:preview', async () => {
   const result = await capture.preview();

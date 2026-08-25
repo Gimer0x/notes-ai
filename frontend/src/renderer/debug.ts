@@ -6,6 +6,18 @@ type CaptureDevice = { inputName: string; lost?: boolean };
 type PithApi = {
   getLocale: () => Promise<Locale>;
   getMessages: (locale: Locale) => Promise<Messages>;
+  auth: {
+    login: () => Promise<void>;
+    logout: () => Promise<void>;
+    me: () => Promise<{
+      id: string;
+      email: string;
+      displayName: string | null;
+      plan: 'free' | 'paid';
+      remainingSeconds: number;
+      remainingNotes: number | null;
+    } | null>;
+  };
   capture: {
     preview: () => Promise<{ systemAudioEnabled: boolean; inputName: string }>;
     start: () => Promise<{ systemAudioEnabled: boolean; inputName: string }>;
@@ -59,6 +71,7 @@ function applyCopy(): void {
   $('sysLevelLabel').textContent = t.levelSystem;
   $('levelPill').setAttribute('aria-label', t.levelPillLabel);
   $('inputDeviceLabel').textContent = t.inputDevice;
+  void renderAuth();
   renderSystemAudio();
   renderInputDevice();
 }
@@ -72,6 +85,19 @@ function applyDevice(device: CaptureDevice): void {
   inputName = device.inputName || '';
   micLost = Boolean(device.lost);
   renderInputDevice();
+}
+
+async function renderAuth(): Promise<void> {
+  const me = await pith.auth.me();
+  $('authStatus').textContent = me
+    ? t.signedInAs
+        .replace('{email}', me.email)
+        .replace('{plan}', me.plan === 'paid' ? t.planPaid : t.planFree)
+    : t.signedOut;
+  ($('signIn') as HTMLButtonElement).hidden = Boolean(me);
+  ($('signOut') as HTMLButtonElement).hidden = !me;
+  $('signIn').textContent = t.signIn;
+  $('signOut').textContent = t.signOut;
 }
 
 function renderSystemAudio(): void {
@@ -93,6 +119,11 @@ function errorCode(error: unknown): string {
     'no_spike_key',
     'empty',
     'too_short',
+    'no_google_client',
+    'auth_denied',
+    'auth_failed',
+    'auth_timeout',
+    'safe_storage_unavailable',
     'already_running',
     'not_listening',
   ];
@@ -120,6 +151,13 @@ function setError(code: string): void {
                 ? t.errorTooShort
                 : code === 'mic_format'
                 ? t.errorMicDenied
+            : code === 'no_google_client'
+              ? t.errorNoGoogleClient
+              : code === 'auth_denied' ||
+                  code === 'auth_failed' ||
+                  code === 'auth_timeout' ||
+                  code === 'safe_storage_unavailable'
+                ? t.errorAuth
               : code.startsWith('spike_') || code.includes(' ')
                 ? `${t.errorSpike}: ${code}`
                 : t.errorGeneric;
@@ -209,6 +247,20 @@ async function init(): Promise<void> {
     },
   );
 
+  $('signIn').textContent = t.signIn;
+  $('signOut').textContent = t.signOut;
+  $('signIn').addEventListener('click', () =>
+    withBusy(async () => {
+      await pith.auth.login();
+      await renderAuth();
+    }),
+  );
+  $('signOut').addEventListener('click', () =>
+    withBusy(async () => {
+      await pith.auth.logout();
+      await renderAuth();
+    }),
+  );
   $('start').addEventListener('click', () =>
     withBusy(async () => {
       const result = await pith.capture.start();

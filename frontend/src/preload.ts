@@ -3,9 +3,23 @@ import type { CaptureDevice, CaptureLevels, CaptureState } from './capture/captu
 
 type DevicePayload = CaptureDevice & { lost?: boolean };
 
+type MePayload = {
+  id: string;
+  email: string;
+  displayName: string | null;
+  plan: 'free' | 'paid';
+  remainingSeconds: number;
+  remainingNotes: number | null;
+};
+
 contextBridge.exposeInMainWorld('pith', {
   getLocale: (): Promise<'en' | 'es'> => ipcRenderer.invoke('i18n:locale'),
   getMessages: (locale: 'en' | 'es') => ipcRenderer.invoke('i18n:messages', locale),
+  auth: {
+    login: (): Promise<void> => ipcRenderer.invoke('auth:login'),
+    logout: (): Promise<void> => ipcRenderer.invoke('auth:logout'),
+    me: (): Promise<MePayload | null> => ipcRenderer.invoke('auth:me'),
+  },
   capture: {
     preview: () => ipcRenderer.invoke('capture:preview'),
     start: () => ipcRenderer.invoke('capture:start'),

@@ -1,45 +1,63 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-
-const STORAGE_KEY = 'pith.demoSignedIn';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
+import { apiFetch, type MeResponse } from '../api';
+import { startGoogleLogin } from './google';
 
 type AuthValue = {
   signedIn: boolean;
-  signIn: () => void;
-  signOut: () => void;
+  me: MeResponse | null;
+  loading: boolean;
+  signIn: () => Promise<void>;
+  signOut: () => Promise<void>;
+  refresh: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
 
-function readSignedIn(): boolean {
-  try {
-    return localStorage.getItem(STORAGE_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [signedIn, setSignedIn] = useState(readSignedIn);
+  const [me, setMe] = useState<MeResponse | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const signIn = useCallback(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, '1');
-    } catch {
-      // Ignore.
+  const refresh = useCallback(async () => {
+    const response = await apiFetch('/me');
+    if (!response.ok) {
+      setMe(null);
+      return;
     }
-    setSignedIn(true);
+    setMe((await response.json()) as MeResponse);
   }, []);
 
-  const signOut = useCallback(() => {
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // Ignore.
-    }
-    setSignedIn(false);
+  useEffect(() => {
+    void refresh().finally(() => setLoading(false));
+  }, [refresh]);
+
+  const signIn = useCallback(async () => {
+    await startGoogleLogin();
   }, []);
 
-  const value = useMemo(() => ({ signedIn, signIn, signOut }), [signedIn, signIn, signOut]);
+  const signOut = useCallback(async () => {
+    await apiFetch('/auth/logout', { method: 'POST' });
+    setMe(null);
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      signedIn: Boolean(me),
+      me,
+      loading,
+      signIn,
+      signOut,
+      refresh,
+    }),
+    [me, loading, signIn, signOut, refresh],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

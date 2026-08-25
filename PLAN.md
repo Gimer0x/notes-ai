@@ -205,7 +205,7 @@ Resolve the active window from plan rules above (free 30-day slices vs Stripe mo
 
 Implement **in this order**. Each step must compile, use `.env`, follow SOLID, and update `README.md`. Do not start step N+1 until step N works.
 
-**Status:** Steps 1–8 are implemented. Confirm the public website (EN/ES, landing, pricing, download placeholder, Sign in / Sign out preview) before Step 9 (Google OAuth).
+**Status:** Steps 1–9 are implemented. Confirm Google sign-in on the website and Electron (same Gmail → one `users` row) before Step 10 (Stripe).
 
 ### Module boundaries
 
@@ -605,4 +605,4 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 
 ## Still open
 
-None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. After Step 8 is confirmed, next code step is **Step 9** (Google login).
+None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. After Step 9 is confirmed, next code step is **Step 10** (Stripe Checkout).

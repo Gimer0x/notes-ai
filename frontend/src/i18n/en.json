@@ -34,5 +34,13 @@
   "levelPillLabel": "Live input levels",
   "inputDevice": "Microphone",
   "inputDeviceNone": "No microphone",
-  "errorMicLost": "The microphone was disconnected. Plug it in or choose another input in Sound settings."
+  "errorMicLost": "The microphone was disconnected. Plug it in or choose another input in Sound settings.",
+  "signIn": "Sign in with Google",
+  "signOut": "Sign out",
+  "signedInAs": "Signed in as {email} · {plan}",
+  "signedOut": "Not signed in",
+  "planFree": "Free",
+  "planPaid": "Paid",
+  "errorAuth": "Google sign-in failed",
+  "errorNoGoogleClient": "GOOGLE_DESKTOP_CLIENT_ID is missing in frontend/.env"
 }

@@ -1,0 +1,3 @@
+
+
+psql postgres://localhost:5432/pith -c 'SELECT email, plan_code, google_subject, created_at FROM users;'

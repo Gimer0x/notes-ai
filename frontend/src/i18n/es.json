@@ -34,5 +34,13 @@
   "levelPillLabel": "Niveles de entrada en vivo",
   "inputDevice": "Micrófono",
   "inputDeviceNone": "Sin micrófono",
-  "errorMicLost": "Se desconectó el micrófono. Conéctalo o elige otra entrada en Ajustes de Sonido."
+  "errorMicLost": "Se desconectó el micrófono. Conéctalo o elige otra entrada en Ajustes de Sonido.",
+  "signIn": "Entrar con Google",
+  "signOut": "Salir",
+  "signedInAs": "Sesión iniciada como {email} · {plan}",
+  "signedOut": "Sin sesión",
+  "planFree": "Gratis",
+  "planPaid": "De pago",
+  "errorAuth": "No se pudo iniciar sesión con Google",
+  "errorNoGoogleClient": "Falta GOOGLE_DESKTOP_CLIENT_ID en frontend/.env"
 }

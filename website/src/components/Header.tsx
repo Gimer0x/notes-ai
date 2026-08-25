@@ -4,7 +4,7 @@ import { useI18n } from '../i18n/I18nProvider';
 
 export function Header() {
   const { t } = useI18n();
-  const { signedIn, signIn, signOut } = useAuth();
+  const { signedIn, me, signIn, signOut } = useAuth();
 
   return (
     <header className="header">
@@ -19,13 +19,17 @@ export function Header() {
           <NavLink to="/pricing">{t.navPricing}</NavLink>
           {signedIn ? (
             <>
-              <span className="status">{t.signedInAs}</span>
-              <button type="button" className="secondary" onClick={signOut}>
+              <span className="status">
+                {t.signedInAs
+                  .replace('{email}', me?.email ?? '')
+                  .replace('{plan}', me?.plan === 'paid' ? t.planPaid : t.planFree)}
+              </span>
+              <button type="button" className="secondary" onClick={() => void signOut()}>
                 {t.signOut}
               </button>
             </>
           ) : (
-            <button type="button" className="secondary" onClick={signIn} title={t.authPreviewHint}>
+            <button type="button" className="secondary" onClick={() => void signIn()}>
               {t.signIn}
             </button>
           )}
