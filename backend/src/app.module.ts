@@ -11,11 +11,12 @@ import { AuthModule } from './auth/auth.module';
 import { SpikeModule } from './spike/spike.module';
 import { TranscribeModule } from './transcribe/transcribe.module';
 
-loadEnv();
+const envFile = process.env.NODE_ENV === 'test' ? '.env.test' : '.env';
+loadEnv({ path: envFile });
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: envFile }),
     DbModule,
     HealthModule,
     ConfigApiModule,

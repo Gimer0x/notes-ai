@@ -7,7 +7,8 @@
     "build:native": "zsh native/build-helper.sh",
     "build": "npm run build:native && tsc && mkdir -p dist/renderer && cp src/renderer/index.html dist/renderer/",
     "start": "npm run build && electron .",
-    "start:dev": "npm start"
+    "start:dev": "npm start",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "dotenv": "^16.6.1",

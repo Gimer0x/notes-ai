@@ -1,0 +1,7 @@
+{
+  "name": "pith",
+  "private": true,
+  "scripts": {
+    "test": "bash scripts/test-all.sh"
+  }
+}

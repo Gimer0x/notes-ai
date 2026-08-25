@@ -203,9 +203,9 @@ Resolve the active window from plan rules above (free 30-day slices vs Stripe mo
 
 **Risk-first.** System-audio capture is the hardest part. Do **not** build Google, Stripe, workspaces, notes, or the public website until a headphone meeting (or YouTube in headphones) appears in a transcript. If capture fails, stop; do not continue the product on a mic-only hope.
 
-Implement **in this order**. Each step must compile, use `.env`, follow SOLID, and update `README.md`. Do not start step N+1 until step N works.
+Implement **in this order**. Each step must compile, use `.env`, follow SOLID, update `README.md`, and **add or extend automated tests when the step introduces new behavior** (API, quota rules, i18n keys). Run the full suite (`npm test` from the repo root) before treating the step as done. Do not start step N+1 until step N works.
 
-**Status:** Steps 1–10 are implemented. Confirm test-mode Checkout flips `paid` and remaining quota shows (website Account + Electron) before Step 11 (Electron shell).
+**Status:** Steps 1–11 are implemented. Automated tests (Step 11) run locally and on GitHub push/PR. Next product step is **Step 12** (Electron shell + workspaces + notes list).
 
 ### Module boundaries
 
@@ -524,39 +524,49 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 
 ---
 
-### Step 11 — Electron shell + workspaces + notes list
+### Step 11 — Automated tests + CI
 
-**Do:** Signed-in chrome: Home, remaining time, workspace list, add workspace, notes list/detail/move/delete (confirm; block delete if `processing`). Delete workspace only if empty and not the last one. Optional title. **Wire New note to the capture module from Step 3** (debug window is not the main UI). Failed notes: Retry when allowed. UI strings **English and Spanish** (same i18n approach as the website).
+**Do:** A small regression net that does **not** hit real capture, Google, or Stripe Checkout. Backend: Jest + Postgres (`pith_test`) for `GET /health`, `GET /config`, `GET /me` (JWT, 401, `plan` / `planInterval` / remaining quota), `canStartNote`, billing HTTP (401 / 400 / already-paid 409 / webhook signature), WAV canonicalize, spike route absent outside development. Website: Vitest for `planLabel` and EN/ES i18n key parity. Frontend: `tsc --noEmit` only. GitHub Actions runs the same commands on push and pull request (Docker Postgres, dummy secrets, no OpenAI/Google/Stripe network).
+
+**Do not:** Headphone / TCC capture tests. Real Google OAuth. Real Checkout or `stripe listen`. Electron window / Dock. Notes and workspaces routes (those land in later steps).
+
+**Done when:** `npm test` from the repo root (or `npm test` in `backend/` and `website/` plus `npm run typecheck` in all three projects) passes locally and on GitHub.
+
+---
+
+### Step 12 — Electron shell + workspaces + notes list
+
+**Do:** Signed-in chrome: Home, remaining time, workspace list, add workspace, notes list/detail/move/delete (confirm; block delete if `processing`). Delete workspace only if empty and not the last one. Optional title. **Wire New note to the capture module from Step 3** (debug window is not the main UI). Failed notes: Retry when allowed. UI strings **English and Spanish** (same i18n approach as the website). **Tests:** cover workspace/notes HTTP contracts (list/create, delete workspace only if empty and not last, block note delete while `processing`, move/rename). Keep EN/ES i18n keys in parity. Run `npm test` from the repo root. Do not add headphone or real Google tests.
 
 **Do not:** Nested folders, sharing. Do not regress headphone capture.
 
-**Done when:** User can add workspaces, see notes, and start a listen from the real shell using the proven capture module.
+**Done when:** User can add workspaces, see notes, and start a listen from the real shell using the proven capture module. Automated tests for the new routes pass.
 
 ---
 
-### Step 12 — Product listening rules + GPT bullets
+### Step 13 — Product listening rules + GPT bullets
 
-**Do:** One listen at a time; Pause/Resume/Stop; **20 min pause auto-cancel**; 30 s minimum (Resume or Cancel if early); quotas; offline: keep buffering, on Stop retry upload **10 minutes** then discard; quit discards unsent audio. Valid Stop → `POST /notes/:id/stop` with 16 kHz mono 16-bit WAV (chunk at 10 min); `processing`; keep WAV until STT succeeds then delete; save transcript; GPT bullets; Retry per `error_code`. Jobs survive Home. Permission fallback warning stays.
+**Do:** One listen at a time; Pause/Resume/Stop; **20 min pause auto-cancel**; 30 s minimum (Resume or Cancel if early); quotas; offline: keep buffering, on Stop retry upload **10 minutes** then discard; quit discards unsent audio. Valid Stop → `POST /notes/:id/stop` with 16 kHz mono 16-bit WAV (chunk at 10 min); `processing`; keep WAV until STT succeeds then delete; save transcript; GPT bullets; Retry per `error_code`. Jobs survive Home. Permission fallback warning stays. **Tests:** cover `POST /notes/:id/stop` / `cancel` / `retry` with **mocked** STT and GPT (no live OpenAI). Assert quota `canStartNote`, min-listen / pause timings from `GET /config` (not hard-coded), WAV chunk helper, and retry rules (`stt` vs `gpt`). Run `npm test` from the repo root. Do not automate headphone capture.
 
 **Do not:** Store wav overnight or after STT. Live captions. Speaker names. Stripe inside this job.
 
-**Done when:** ≥30 s headphone meeting → bullets for **both** sides (when system audio allowed); EN/ES match the meeting; pause 20 min discards; failed GPT can Retry without re-recording.
+**Done when:** ≥30 s headphone meeting → bullets for **both** sides (when system audio allowed); EN/ES match the meeting; pause 20 min discards; failed GPT can Retry without re-recording. New automated tests pass.
 
 ---
 
-### Step 13 — macOS installer + website download
+### Step 14 — macOS installer + website download
 
-**Do:** electron-builder mac artifact with entitlements for mic + audio tap. Website download link. Document both permission prompts.
+**Do:** electron-builder mac artifact with entitlements for mic + audio tap. Website download link. Document both permission prompts. **Tests:** add coverage only if new logic appears (for example a download URL from config). Keep EN/ES keys in parity. Run `npm test` from the repo root.
 
-**Done when:** Install from the website, grant permissions, headphone Meet/Zoom still works, test Checkout works.
+**Done when:** Install from the website, grant permissions, headphone Meet/Zoom still works, test Checkout works. The full automated suite still passes.
 
 ---
 
-### Step 14 — Harden and document
+### Step 15 — Harden and document
 
-**Do:** Gitignore audit. README: capture verification, curl examples, three projects, env, Google, Stripe, OpenAI, permissions, entitlements, `plans` SQL, Windows future. Failed notes visible. No spike key in production.
+**Do:** Gitignore audit. README: capture verification, curl examples, three projects, env, Google, Stripe, OpenAI, permissions, entitlements, `plans` SQL, Windows future. Failed notes visible. No spike key in production. **Tests:** extend the suite if hardening adds guards or config; keep GitHub Actions green. Run `npm test` from the repo root.
 
-**Done when:** A new developer can follow README only.
+**Done when:** A new developer can follow README only. The full automated suite still passes.
 
 ## Out of scope for this MVP
 
@@ -606,4 +616,4 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 
 ## Still open
 
-None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. After Step 10 is confirmed, next code step is **Step 11** (Electron shell + workspaces + notes list).
+None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. After Step 11 tests are in place, next product step is **Step 12** (Electron shell + workspaces + notes list).

@@ -1,6 +1,6 @@
 # Pith
 
-macOS meeting notepad. Capture (Steps 1–6) is proven. **Steps 7–10** cover the product backend, public website, Google login, and Stripe Checkout. Spike transcribe stays **dev-only**. Follow `PLAN.md`.
+macOS meeting notepad. Capture (Steps 1–6) is proven. **Steps 7–10** cover the product backend, public website, Google login, and Stripe Checkout. **Step 11** is automated tests and GitHub CI. Spike transcribe stays **dev-only**. Follow `PLAN.md`.
 
 ## Layout
 
@@ -158,6 +158,28 @@ curl -sS -X POST http://localhost:3000/spike/transcribe \
 ```
 
 
+
+## Tests (Step 11)
+
+From the repo root:
+
+```bash
+npm test
+```
+
+That runs `scripts/test-all.sh`: backend tests + typecheck, website tests + typecheck, frontend typecheck. Postgres must be running (`cd backend && docker compose up -d`). The suite uses a separate database `pith_test` (created on first run if missing). It does **not** call Google, Stripe Checkout, OpenAI, or capture hardware. Dummy values live in `backend/.env.test` (safe to commit).
+
+You can still run a single project:
+
+```bash
+cd backend && npm test && npm run typecheck
+cd website && npm test && npm run typecheck
+cd frontend && npm run typecheck
+```
+
+GitHub Actions (`.github/workflows/test.yml`) runs the same root `npm test` on every **push** and **pull request**. There is no git hook that blocks a push.
+
+Headphone mix, real OAuth, and live Checkout stay manual (see capture verification below).
 
 ## Secrets
 
