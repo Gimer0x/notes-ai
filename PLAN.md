@@ -361,6 +361,7 @@ Behavior timings live in **backend env** (documented in `backend/.env.example`).
 | `PAUSE_WARNING_SECONDS` | `60` | Warn before auto-cancel |
 | `UPLOAD_RETRY_SECONDS` | `600` (10 min) | Retry Stop upload while offline, then discard |
 | `WAV_CHUNK_SECONDS` | `600` (10 min) | Max length of each WAV part for STT |
+| `OPENAI_TRANSCRIBE_MODEL` | `gpt-4o-mini-transcribe` | OpenAI file STT model |
 
 Do not scatter these numbers in React, Swift, or Nest handlers. Audio sample rate **16 kHz** / mono / 16-bit stay locked (format, not a business knob).
 
@@ -396,7 +397,7 @@ Do not scatter these numbers in React, Swift, or Nest handlers. Audio sample rat
 - `GET /health` → `{ "ok": true }`
 - `POST /spike/transcribe` — multipart file (wav/webm/mp3). Header `X-Spike-Key: <CAPTURE_SPIKE_KEY>`. Calls OpenAI STT. Returns JSON `{ "text", "language" }` (`en` or `es` if detectable). Delete the upload from memory when the response is sent.
 
-**Env:** `OPENAI_API_KEY`, `CAPTURE_SPIKE_KEY` (long random string, `.env` only).
+**Env:** `OPENAI_API_KEY`, `OPENAI_TRANSCRIBE_MODEL` (default `gpt-4o-mini-transcribe`), `CAPTURE_SPIKE_KEY` (long random string, `.env` only).
 
 **Verify with curl** (fixture file on disk, not from the mic):
 

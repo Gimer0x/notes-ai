@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('pith', {
     cancel: () => ipcRenderer.invoke('capture:cancel'),
     getState: (): Promise<CaptureState> => ipcRenderer.invoke('capture:getState'),
     resend: () => ipcRenderer.invoke('debug:resend'),
+    hasLastMix: (): Promise<boolean> => ipcRenderer.invoke('debug:hasLastMix'),
     onLevels: (listener: (levels: CaptureLevels) => void): (() => void) => {
       const handler = (_event: unknown, levels: CaptureLevels): void => {
         listener(levels);

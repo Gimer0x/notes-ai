@@ -26,7 +26,7 @@ cp frontend/.env.example frontend/.env
 cp website/.env.example website/.env
 ```
 
-In `backend/.env` set `OPENAI_API_KEY`, `CAPTURE_SPIKE_KEY`, `DATABASE_URL`, `JWT_SECRET`, and the Stripe keys below (see `.env.example`). Quota caps live in the `plans` table, not in code. Pause / min-listen / upload-retry / WAV chunk length live in backend env and `GET /config`.
+In `backend/.env` set `OPENAI_API_KEY`, `OPENAI_TRANSCRIBE_MODEL` (default `gpt-4o-mini-transcribe`), `CAPTURE_SPIKE_KEY`, `DATABASE_URL`, `JWT_SECRET`, and the Stripe keys below (see `.env.example`). Quota caps live in the `plans` table, not in code. Pause / min-listen / upload-retry / WAV chunk length live in backend env and `GET /config`.
 
 Never commit `.env`. `POST /spike/transcribe` is **dev-only** (`NODE_ENV=development` plus `CAPTURE_SPIKE_KEY`). `npm start` in backend sets `NODE_ENV=production` and does not register the spike route.
 
@@ -127,13 +127,13 @@ This MVP does not use a custom URL scheme (`pith://`), so a browser tab cannot l
 1. Choose English or Spanish in the UI (defaults from macOS language).
 2. The level pill is visible immediately (**Listening — not recording**). The **Microphone** line shows the current default input (built-in, AirPods, USB mic, …). Allow **Microphone**. Allow **Screen Recording** — that permission is for **meeting sound** (Zoom / Meet / Teams / YouTube), not to save video or screenshots.
 3. If you just granted Screen Recording, click **Start** (it retries system audio). Speak or play something and confirm the **Mic** / **System** bars move. Silent or missing input → those bars stay still.
-4. Switch the default input in Sound settings (or unplug AirPods): the name should update and the mic tap should reconnect. If no mic remains, bars stay still and a warning appears. **Start** begins recording. Pause holds both still. **Stop** / **Cancel** end the recording and return to preview (the pill stays).
+4. Switch the default input in Sound settings (or unplug AirPods): the name should update and the mic tap should reconnect. If no mic remains, bars stay still and a warning appears. **Start** begins recording and the **HH:MM:SS** clock next to the buttons starts. **Pause** freezes the clock (and both audio sources); **Resume** continues it. **Stop** freezes the clock on the mix length and transcribes. **Cancel** discards the buffer and resets the clock to `00:00:00`. Stop / Cancel return to preview (the pill stays).
 5. Play something in headphones and say a short phrase, then **Stop**.
-6. The mix (16-bit PCM WAV, mono, 16 kHz, `fmt`  + `data` only) is posted to `POST /spike/transcribe`. The transcript appears in the window.
+6. The mix (16-bit PCM WAV, mono, 16 kHz, `fmt`  + `data` only) is posted to `POST /spike/transcribe`. Long recordings are split on the server into parts of `WAV_CHUNK_SECONDS` (default 10 minutes, under OpenAI’s 25 MB per-file limit), transcribed in order, then concatenated. The transcript appears in the window. The **API terminal** prints an estimated STT cost in USD from the transcription `usage` OpenAI returns, times the current list price on that model’s OpenAI docs page (fetched at runtime, not stored in code or `.env`). That estimate is not shown in the app.
 
 Status should show **System audio: on** when Screen Recording is allowed. If it stays off, the app continues **mic-only** and warns that other people may be missing.
 
-Pause / Resume pauses both sources. Cancel discards the buffer. **Resend last mix** retries STT from memory until you quit (nothing is written into the git repo).
+Pause / Resume pauses both sources. Cancel discards the buffer. **Resend last mix** retries STT from memory until you quit (nothing is written into the git repo). The button stays disabled until a Stop has stored a mix. Restarting the Mac app clears that mix — if transcribe failed, keep the window open, restart only the API, then Resend.
 
 In System Settings → Privacy & Security:
 

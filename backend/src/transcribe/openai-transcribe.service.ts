@@ -7,9 +7,18 @@ import {
 import { ConfigService } from '@nestjs/config';
 import OpenAI, { APIError, toFile } from 'openai';
 import { canonicalizeWav } from './canonicalize-wav';
+import { wavDurationSeconds } from './split-wav';
+import {
+  addUsage,
+  costFromUsageAndRates,
+  formatTranscribeCostLine,
+  loadOpenAiModelRates,
+  usageFromTranscription,
+  type TranscribeUsage,
+} from './stt-cost';
 import type { MeetingLanguage, TranscriptResult, TranscribeService } from './transcribe.service';
 
-const DEFAULT_MODEL = 'gpt-transcribe';
+const DEFAULT_MODEL = 'gpt-4o-mini-transcribe';
 
 @Injectable()
 export class OpenAiTranscribeService implements TranscribeService {
@@ -36,6 +45,11 @@ export class OpenAiTranscribeService implements TranscribeService {
     const openai = new OpenAI({ apiKey });
     const parts: string[] = [];
     let language: MeetingLanguage = 'en';
+    let usage: TranscribeUsage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      durationSeconds: 0,
+    };
 
     try {
       for (const [index, buffer] of buffers.entries()) {
@@ -61,6 +75,10 @@ export class OpenAiTranscribeService implements TranscribeService {
               'language' in result ? String(result.language) : undefined,
             )
           : this.fromTranscript(text);
+        usage = addUsage(
+          usage,
+          usageFromTranscription(result, wavDurationSeconds(prepared) ?? 0),
+        );
       }
     } catch (error) {
       if (error instanceof APIError) {
@@ -69,10 +87,32 @@ export class OpenAiTranscribeService implements TranscribeService {
       throw error;
     }
 
+    await this.logSttCost(model, usage);
+
     return {
       language,
       transcript: parts.filter(Boolean).join(' ').trim(),
     };
+  }
+
+  private async logSttCost(model: string, usage: TranscribeUsage): Promise<void> {
+    try {
+      const rates = await loadOpenAiModelRates(model);
+      console.log(
+        `[spike] ${formatTranscribeCostLine({
+          model,
+          cost: costFromUsageAndRates(usage, rates),
+        })}`,
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'openai_model_docs_failed';
+      console.log(
+        `[spike] ${formatTranscribeCostLine({
+          model,
+          cost: { usd: null, reason },
+        })}`,
+      );
+    }
   }
 
   private fromApiLanguage(detected: string | undefined): MeetingLanguage {

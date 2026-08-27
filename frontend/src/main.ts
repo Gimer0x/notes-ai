@@ -103,9 +103,10 @@ ipcMain.handle('debug:stopAndTranscribe', async () => {
     systemAudioEnabled: lastSystemAudioEnabled,
   };
 });
+ipcMain.handle('debug:hasLastMix', () => Boolean(lastMix && lastMix.length > 0));
 ipcMain.handle('debug:resend', async () => {
-  if (!lastMix) {
-    throw new Error('empty');
+  if (!lastMix || lastMix.length === 0) {
+    throw new Error('no_last_mix');
   }
   return spike.transcribe(lastMix);
 });

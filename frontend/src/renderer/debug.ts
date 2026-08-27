@@ -34,6 +34,7 @@ type PithApi = {
     cancel: () => Promise<void>;
     getState: () => Promise<'idle' | 'listening' | 'paused'>;
     resend: () => Promise<{ text: string; language: Locale }>;
+    hasLastMix: () => Promise<boolean>;
     onLevels: (listener: (levels: CaptureLevels) => void) => () => void;
     onDevice: (listener: (device: CaptureDevice) => void) => () => void;
   };
@@ -66,6 +67,7 @@ function applyCopy(): void {
   $('stop').textContent = t.stop;
   $('cancel').textContent = t.cancel;
   $('resend').textContent = t.resend;
+  $('durationLabel').textContent = t.duration;
   $('permissionHint').textContent = t.permissionHint;
   $('grantAgain').textContent = t.grantAgain;
   $('transcriptLabel').textContent = t.transcript;
@@ -76,6 +78,7 @@ function applyCopy(): void {
   void renderAuth();
   renderSystemAudio();
   renderInputDevice();
+  renderDuration();
 }
 
 function renderInputDevice(): void {
@@ -154,6 +157,8 @@ function errorCode(error: unknown): string {
     'safe_storage_unavailable',
     'already_running',
     'not_listening',
+    'File too large',
+    'no_last_mix',
   ];
   for (const code of known) {
     if (raw.includes(code)) {
@@ -177,6 +182,10 @@ function setError(code: string): void {
               ? t.errorEmpty
               : code === 'too_short'
                 ? t.errorTooShort
+                : code === 'File too large'
+                  ? t.errorFileTooLarge
+                  : code === 'no_last_mix'
+                    ? t.errorNoLastMix
                 : code === 'mic_format'
                 ? t.errorMicDenied
             : code === 'no_google_client'
@@ -194,6 +203,7 @@ function setError(code: string): void {
 
 async function syncButtons(): Promise<void> {
   const state = await pith.capture.getState();
+  const hasLastMix = await pith.capture.hasLastMix();
   ($('start') as HTMLButtonElement).disabled = busy || state !== 'idle';
   ($('pause') as HTMLButtonElement).disabled = busy || state !== 'listening';
   ($('resume') as HTMLButtonElement).disabled = busy || state !== 'paused';
@@ -201,7 +211,7 @@ async function syncButtons(): Promise<void> {
     busy || (state !== 'listening' && state !== 'paused');
   ($('cancel') as HTMLButtonElement).disabled =
     busy || (state !== 'listening' && state !== 'paused');
-  ($('resend') as HTMLButtonElement).disabled = busy;
+  ($('resend') as HTMLButtonElement).disabled = busy || !hasLastMix;
   const status = awaitingTranscript
     ? t.statusTranscribing
     : state === 'listening'
@@ -211,6 +221,85 @@ async function syncButtons(): Promise<void> {
         : t.statusMonitoring;
   $('status').textContent = status;
   $('levelPill').hidden = false;
+}
+
+function formatClock(totalSeconds: number): string {
+  const whole = Math.floor(Math.max(0, totalSeconds));
+  const hours = Math.floor(whole / 3600);
+  const minutes = Math.floor((whole % 3600) / 60);
+  const seconds = whole % 60;
+  return [hours, minutes, seconds]
+    .map((value) => String(value).padStart(2, '0'))
+    .join(':');
+}
+
+let recordedMs = 0;
+let runningSince: number | null = null;
+let tickId: number | null = null;
+
+function recordedSeconds(): number {
+  const extra = runningSince == null ? 0 : Date.now() - runningSince;
+  return (recordedMs + extra) / 1000;
+}
+
+function renderDuration(seconds = recordedSeconds()): void {
+  const clock = formatClock(seconds);
+  const el = $('duration');
+  el.textContent = clock;
+  el.setAttribute('datetime', `PT${Math.floor(Math.max(0, seconds))}S`);
+  el.setAttribute('data-running', runningSince != null ? 'true' : 'false');
+}
+
+function ensureTicker(): void {
+  if (tickId != null) {
+    return;
+  }
+  tickId = window.setInterval(() => renderDuration(), 200);
+}
+
+function stopTicker(): void {
+  if (tickId != null) {
+    clearInterval(tickId);
+    tickId = null;
+  }
+}
+
+function resetTimer(): void {
+  recordedMs = 0;
+  runningSince = null;
+  stopTicker();
+  renderDuration(0);
+}
+
+function pauseTimer(): void {
+  if (runningSince != null) {
+    recordedMs += Date.now() - runningSince;
+    runningSince = null;
+  }
+  stopTicker();
+  renderDuration();
+}
+
+function resumeTimer(): void {
+  if (runningSince == null) {
+    runningSince = Date.now();
+  }
+  ensureTicker();
+  renderDuration();
+}
+
+function startTimer(): void {
+  recordedMs = 0;
+  runningSince = Date.now();
+  ensureTicker();
+  renderDuration();
+}
+
+function freezeTimer(seconds: number): void {
+  recordedMs = Math.max(0, seconds) * 1000;
+  runningSince = null;
+  stopTicker();
+  renderDuration(seconds);
 }
 
 const BAR_GAIN = [12, 16, 14];
@@ -301,26 +390,64 @@ async function init(): Promise<void> {
   });
   $('start').addEventListener('click', () =>
     withBusy(async () => {
-      const result = await pith.capture.start();
-      systemAudioEnabled = result.systemAudioEnabled;
-      applyDevice({ inputName: result.inputName, lost: !result.inputName });
-      renderSystemAudio();
+      try {
+        const result = await pith.capture.start();
+        startTimer();
+        systemAudioEnabled = result.systemAudioEnabled;
+        applyDevice({ inputName: result.inputName, lost: !result.inputName });
+        renderSystemAudio();
+      } catch (error) {
+        resetTimer();
+        throw error;
+      }
     }),
   );
-  $('pause').addEventListener('click', () => withBusy(() => pith.capture.pause()));
-  $('resume').addEventListener('click', () => withBusy(() => pith.capture.resume()));
+  $('pause').addEventListener('click', () =>
+    withBusy(async () => {
+      pauseTimer();
+      try {
+        await pith.capture.pause();
+      } catch (error) {
+        resumeTimer();
+        throw error;
+      }
+    }),
+  );
+  $('resume').addEventListener('click', () =>
+    withBusy(async () => {
+      resumeTimer();
+      try {
+        await pith.capture.resume();
+      } catch (error) {
+        pauseTimer();
+        throw error;
+      }
+    }),
+  );
   $('stop').addEventListener('click', () =>
     withBusy(async () => {
+      pauseTimer();
       awaitingTranscript = true;
       $('status').textContent = t.statusTranscribing;
       const result = await pith.capture.stop();
       systemAudioEnabled = result.systemAudioEnabled;
       renderSystemAudio();
       $('transcript').textContent = result.text.trim() ? result.text : t.noSpeech;
-      $('duration').textContent = `${t.duration}: ${result.durationSeconds.toFixed(1)}s`;
+      freezeTimer(result.durationSeconds);
     }),
   );
-  $('cancel').addEventListener('click', () => withBusy(() => pith.capture.cancel()));
+  $('cancel').addEventListener('click', () =>
+    withBusy(async () => {
+      pauseTimer();
+      try {
+        await pith.capture.cancel();
+        resetTimer();
+      } catch (error) {
+        resumeTimer();
+        throw error;
+      }
+    }),
+  );
   $('resend').addEventListener('click', () =>
     withBusy(async () => {
       awaitingTranscript = true;

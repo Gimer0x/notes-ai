@@ -65,6 +65,35 @@
         font-weight: 600;
         color: var(--ink);
       }
+      .row.controls {
+        align-items: center;
+      }
+      .clock {
+        display: flex;
+        flex-direction: column;
+        margin-left: 8px;
+        min-width: 7.5rem;
+      }
+      #durationLabel {
+        font-size: 0.72rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted);
+        line-height: 1.2;
+      }
+      #duration {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-variant-numeric: tabular-nums;
+        font-weight: 700;
+        font-size: 1.85rem;
+        letter-spacing: 0.04em;
+        color: var(--ink);
+        line-height: 1.1;
+        margin: 0;
+      }
+      #duration[data-running='true'] {
+        color: var(--cta);
+      }
       #transcript {
         white-space: pre-wrap;
         background: #fff;
@@ -149,13 +178,17 @@
       </div>
       <p id="permissionHint"></p>
       <p id="grantAgain"></p>
-      <div class="row">
+      <div class="row controls">
         <button class="primary" id="start"></button>
         <button id="pause"></button>
         <button id="resume"></button>
         <button id="stop"></button>
         <button id="cancel"></button>
         <button id="resend"></button>
+        <div class="clock">
+          <span id="durationLabel"></span>
+          <time id="duration" datetime="PT0S" aria-live="polite">00:00:00</time>
+        </div>
       </div>
       <p id="status"></p>
       <p id="inputDeviceRow">
@@ -188,7 +221,6 @@
       </div>
       <p id="systemAudio"></p>
       <p id="deviceWarning"></p>
-      <p id="duration"></p>
       <p id="error"></p>
       <h2 id="transcriptLabel"></h2>
       <div id="transcript"></div>
