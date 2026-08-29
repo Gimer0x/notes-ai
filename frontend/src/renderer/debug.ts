@@ -1,47 +1,3 @@
-type Locale = 'en' | 'es';
-type Messages = Record<string, string>;
-type CaptureLevels = { mic: number; system: number };
-type CaptureDevice = { inputName: string; lost?: boolean };
-
-type PithApi = {
-  getLocale: () => Promise<Locale>;
-  getMessages: (locale: Locale) => Promise<Messages>;
-  auth: {
-    login: () => Promise<void>;
-    logout: () => Promise<void>;
-    me: () => Promise<{
-      id: string;
-      email: string;
-      displayName: string | null;
-      plan: 'free' | 'paid';
-      planInterval: 'month' | 'year' | null;
-      remainingSeconds: number;
-      remainingNotes: number | null;
-    } | null>;
-    upgrade: () => Promise<void>;
-  };
-  capture: {
-    preview: () => Promise<{ systemAudioEnabled: boolean; inputName: string }>;
-    start: () => Promise<{ systemAudioEnabled: boolean; inputName: string }>;
-    pause: () => Promise<void>;
-    resume: () => Promise<void>;
-    stop: () => Promise<{
-      text: string;
-      language: Locale;
-      durationSeconds: number;
-      systemAudioEnabled: boolean;
-    }>;
-    cancel: () => Promise<void>;
-    getState: () => Promise<'idle' | 'listening' | 'paused'>;
-    resend: () => Promise<{ text: string; language: Locale }>;
-    hasLastMix: () => Promise<boolean>;
-    onLevels: (listener: (levels: CaptureLevels) => void) => () => void;
-    onDevice: (listener: (device: CaptureDevice) => void) => () => void;
-  };
-};
-
-declare const pith: PithApi;
-
 let locale: Locale = 'en';
 let t: Messages = {};
 let systemAudioEnabled: boolean | null = null;
@@ -68,6 +24,7 @@ function applyCopy(): void {
   $('cancel').textContent = t.cancel;
   $('resend').textContent = t.resend;
   $('durationLabel').textContent = t.duration;
+  $('backToNotepad').textContent = t.backToNotepad;
   $('permissionHint').textContent = t.permissionHint;
   $('grantAgain').textContent = t.grantAgain;
   $('transcriptLabel').textContent = t.transcript;
@@ -366,6 +323,7 @@ async function init(): Promise<void> {
 
   $('signIn').textContent = t.signIn;
   $('signOut').textContent = t.signOut;
+  $('backToNotepad').addEventListener('click', () => pith.shell.openNotepad());
   $('signIn').addEventListener('click', () =>
     withBusy(async () => {
       await pith.auth.login();
@@ -459,3 +417,5 @@ async function init(): Promise<void> {
 }
 
 void init();
+
+export {};

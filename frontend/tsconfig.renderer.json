@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "module": "ES2020",
+    "outDir": "./dist/renderer",
+    "rootDir": "./src/renderer",
+    "strict": true,
+    "skipLibCheck": true,
+    "moduleResolution": "node",
+    "lib": ["ES2021", "DOM"]
+  },
+  "include": ["src/renderer/**/*.ts"]
+}

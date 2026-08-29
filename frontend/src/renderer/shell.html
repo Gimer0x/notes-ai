@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'"
+    />
+    <title>Pith</title>
+    <link rel="stylesheet" href="./shell.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside class="sidebar">
+        <label class="search" for="search">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" />
+            <path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+          <input id="search" type="search" autocomplete="off" />
+          <kbd id="searchShortcut">⌘K</kbd>
+        </label>
+        <nav class="side-nav">
+          <button type="button" class="nav-item active" id="homeBtn">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span id="homeBtnLabel"></span>
+          </button>
+          <button type="button" class="nav-item" id="profileBtn">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="2" />
+              <path
+                d="M5 19.5c.8-3.2 3.5-5 7-5s6.2 1.8 7 5"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+            <span id="profileBtnLabel"></span>
+          </button>
+        </nav>
+        <div class="nav-label" id="workspacesLabel"></div>
+        <div class="workspace-block">
+          <div class="workspace-list" id="workspaceList"></div>
+          <button type="button" class="nav-item add-workspace-btn" id="addWorkspace">
+            <span class="add-workspace-plus" aria-hidden="true">+</span>
+            <span id="addWorkspaceLabel"></span>
+          </button>
+          <input
+            id="workspaceName"
+            class="add-workspace-name"
+            maxlength="80"
+            hidden
+          />
+        </div>
+        <p class="error" id="sideError"></p>
+        <div class="sidebar-foot">
+          <button type="button" class="auth-link sign-in" id="signIn">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span id="signInLabel"></span>
+          </button>
+          <button type="button" class="auth-link sign-out" id="signOut" hidden>
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span id="signOutLabel"></span>
+          </button>
+        </div>
+      </aside>
+      <section class="main">
+        <header class="topbar">
+          <h1 id="mainTitle"></h1>
+          <div class="top-actions">
+            <button type="button" class="primary new-note" id="openSpike">
+              <span class="new-note-plus" aria-hidden="true">+</span>
+              <span id="openSpikeLabel"></span>
+            </button>
+          </div>
+        </header>
+        <div class="content">
+          <p class="banner" id="mockBanner"></p>
+          <p class="error" id="mainError"></p>
+          <div id="view"></div>
+        </div>
+      </section>
+    </div>
+    <div class="modal" id="confirmDialog" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+        <h2 id="confirmTitle"></h2>
+        <p id="confirmBody"></p>
+        <div class="modal-actions">
+          <button type="button" id="confirmCancel"></button>
+          <button type="button" class="danger" id="confirmOk"></button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./shell.js"></script>
+  </body>
+</html>

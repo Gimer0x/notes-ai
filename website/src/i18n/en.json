@@ -3,7 +3,7 @@
   "navHome": "Home",
   "navPricing": "Pricing",
   "navAccount": "Account",
-  "signIn": "Sign in with Google",
+  "signIn": "Sign in",
   "signOut": "Sign out",
   "signedInAs": "Signed in as {email} · {plan}",
   "authError": "Google sign-in did not finish. Try again.",

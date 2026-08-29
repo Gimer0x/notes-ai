@@ -205,7 +205,7 @@ Resolve the active window from plan rules above (free 30-day slices vs Stripe mo
 
 Implement **in this order**. Each step must compile, use `.env`, follow SOLID, update `README.md`, and **add or extend automated tests when the step introduces new behavior** (API, quota rules, i18n keys). Run the full suite (`npm test` from the repo root) before treating the step as done. Do not start step N+1 until step N works.
 
-**Status:** Steps 1–11 are implemented. Automated tests (Step 11) run locally and on GitHub push/PR. Next product step is **Step 12** (Electron shell + workspaces + notes list).
+**Status:** Steps 1–11 are implemented. **Step 12a** (Electron notepad shell mockups) is implemented. Automated tests (Step 11) run locally and on GitHub push/PR. Next is UX review of the mock shell, then **Step 12b** (wire workspaces, notes, and capture).
 
 ### Module boundaries
 
@@ -535,9 +535,19 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 
 ---
 
-### Step 12 — Electron shell + workspaces + notes list
+### Step 12a — Electron notepad shell (mockups only)
 
-**Do:** Signed-in chrome: Home, remaining time, workspace list, add workspace, notes list/detail/move/delete (confirm; block delete if `processing`). Delete workspace only if empty and not the last one. Optional title. **Wire New note to the capture module from Step 3** (debug window is not the main UI). Failed notes: Retry when allowed. UI strings **English and Spanish** (same i18n approach as the website). **Tests:** cover workspace/notes HTTP contracts (list/create, delete workspace only if empty and not last, block note delete while `processing`, move/rename). Keep EN/ES i18n keys in parity. Run `npm test` from the repo root. Do not add headphone or real Google tests.
+**Do:** Make the Mac app open on a **notepad chrome** (not the capture spike as the home screen): Home, remaining time, workspace list, add workspace, notes list/detail/move/delete (confirm; block delete if `processing` in the mock), New note, a mock listening screen (Pause/Resume/Stop/Cancel + clock). Delete workspace only if empty and not the last one. Optional title field. Failed notes show Retry. UI strings **English and Spanish**. Remaining time / plan / Upgrade / Google sign-in may use the **existing** `GET /me` and auth (already built). Workspaces and notes are **in-memory mock data** — no new HTTP. Keep the capture spike as a **dev screen** so headphone transcribe still works. **Tests:** EN/ES i18n key parity for the new shell strings; `tsc --noEmit`. Run `npm test` from the repo root.
+
+**Do not:** Workspace or notes API. Do not call `CaptureService` from New note. Do not add GPT bullets from a real mix. Do not remove the spike. Nested folders, sharing.
+
+**Done when:** You can click through Home → workspace → note → New note (mock listen) in English and Spanish and still open the spike to transcribe. The UX is accepted or marked for changes before **12b**.
+
+---
+
+### Step 12b — Workspaces + notes list (wired)
+
+**Do:** Persist workspaces and notes through the backend contracts. Signed-in chrome from 12a uses real lists. Add workspace, notes list/detail/move/delete (confirm; block delete if `processing`). Delete workspace only if empty and not the last one. Optional title. **Wire New note to the capture module from Step 3** (spike is not the main UI). Failed notes: Retry when allowed. **Tests:** cover workspace/notes HTTP contracts (list/create, delete workspace only if empty and not last, block note delete while `processing`, move/rename). Keep EN/ES i18n keys in parity. Run `npm test` from the repo root. Do not add headphone or real Google tests.
 
 **Do not:** Nested folders, sharing. Do not regress headphone capture.
 
@@ -617,4 +627,4 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 
 ## Still open
 
-None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. After Step 11 tests are in place, next product step is **Step 12** (Electron shell + workspaces + notes list).
+None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. **Step 12a** (Electron notepad shell mockups) is in the app. Wire workspaces, notes, and capture in **Step 12b** after the UX is accepted.

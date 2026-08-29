@@ -51,5 +51,9 @@ contextBridge.exposeInMainWorld('pith', {
       };
     },
   },
+  shell: {
+    openSpike: (): Promise<void> => ipcRenderer.invoke('shell:openSpike'),
+    openNotepad: (): Promise<void> => ipcRenderer.invoke('shell:openNotepad'),
+  },
 });
 

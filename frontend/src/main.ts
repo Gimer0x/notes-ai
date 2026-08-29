@@ -16,6 +16,11 @@ const spike = new SpikeClient(backendUrl(), captureSpikeKey());
 const auth = new AuthService();
 let lastMix: Buffer | null = null;
 let lastSystemAudioEnabled = false;
+let mainWindow: BrowserWindow | null = null;
+
+function rendererFile(name: string): string {
+  return path.join(__dirname, 'renderer', name);
+}
 
 function broadcastLevels(levels: CaptureLevels): void {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -40,11 +45,11 @@ function preferredLocale(): 'en' | 'es' {
 }
 
 function createWindow(): void {
-  const window = new BrowserWindow({
-    width: 880,
-    height: 720,
-    title: 'Pith Capture Spike',
-    backgroundColor: '#F7F4EE',
+  mainWindow = new BrowserWindow({
+    width: 1100,
+    height: 740,
+    title: 'Pith',
+    backgroundColor: '#FAF7F1',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -52,9 +57,19 @@ function createWindow(): void {
     },
   });
 
-  void window.loadFile(path.join(__dirname, 'renderer/index.html'));
+  void mainWindow.loadFile(rendererFile('shell.html'));
 }
 
+ipcMain.handle('shell:openSpike', () => {
+  if (mainWindow) {
+    void mainWindow.loadFile(rendererFile('index.html'));
+  }
+});
+ipcMain.handle('shell:openNotepad', () => {
+  if (mainWindow) {
+    void mainWindow.loadFile(rendererFile('shell.html'));
+  }
+});
 ipcMain.handle('i18n:locale', () => preferredLocale());
 ipcMain.handle('i18n:messages', (_event, locale: 'en' | 'es') => {
   return locale === 'es' ? es : en;

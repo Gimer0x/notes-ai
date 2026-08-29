@@ -5,10 +5,10 @@
   "main": "dist/main.js",
   "scripts": {
     "build:native": "zsh native/build-helper.sh",
-    "build": "npm run build:native && tsc && mkdir -p dist/renderer && cp src/renderer/index.html dist/renderer/",
+    "build": "npm run build:native && tsc && tsc -p tsconfig.renderer.json && mkdir -p dist/renderer && cp src/renderer/index.html dist/renderer/ && cp src/renderer/shell.html dist/renderer/ && cp src/renderer/shell.css dist/renderer/",
     "start": "npm run build && electron .",
     "start:dev": "npm start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.renderer.json && node scripts/check-i18n.cjs"
   },
   "dependencies": {
     "dotenv": "^16.6.1",

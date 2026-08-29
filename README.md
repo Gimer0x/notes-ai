@@ -1,11 +1,11 @@
 # Pith
 
-macOS meeting notepad. Capture (Steps 1–6) is proven. **Steps 7–10** cover the product backend, public website, Google login, and Stripe Checkout. **Step 11** is automated tests and GitHub CI. Spike transcribe stays **dev-only**. Follow `PLAN.md`.
+macOS meeting notepad. Capture (Steps 1–6) is proven. **Steps 7–10** cover the product backend, public website, Google login, and Stripe Checkout. **Step 11** is automated tests and GitHub CI. **Step 12a** is the Electron notepad **shell mockup** (fake workspaces/notes). Spike transcribe stays **dev-only**. Follow `PLAN.md`.
 
 ## Layout
 
 - `backend/` — NestJS API (`GET /health`, `GET /config`, `GET /me`, Google auth, Stripe Checkout + webhook). `POST /spike/transcribe` only when `NODE_ENV=development` and `CAPTURE_SPIKE_KEY` is set.
-- `frontend/` — Electron debug window + native **Pith Capture Helper** (AVAudioEngine + ScreenCaptureKit)
+- `frontend/` — Electron **notepad shell** (Step 12a mock) + capture spike (dev) + native **Pith Capture Helper**
 - `website/` — public site (Vite + React). No notepad, no capture.
 
 ## Prerequisites
@@ -108,7 +108,7 @@ Open http://localhost:5173. The site is usable without the Mac app. Look is **cr
 4. Copy is **English** or **Spanish** from the browser/OS language (`navigator.languages`). Anything other than Spanish defaults to English. There is no language toggle on the website.
 5. **Sign in with Google** opens Google in this browser. The session is an **httpOnly** cookie on the API (`POST /auth/web/callback`). **Sign out** clears it (`POST /auth/logout`). `GET /me` returns the user, `plan` (`free` / `paid`), `planInterval` (`month` / `year` / null), and remaining quota (`Cache-Control: no-store`). While signed in, the header shows your email and plan (Free / Paid monthly / Paid yearly) and an **Account** link.
 
-## Run — Electron capture (Step 3 + 9–10)
+## Run — Electron (Step 12a shell + capture spike)
 
 Keep the backend running. In a second terminal:
 
@@ -118,15 +118,24 @@ npm install
 npm start
 ```
 
-`npm start` builds the Swift helper, then opens the debug window.
+`npm start` builds the Swift helper, then opens the **notepad shell**. Workspaces and notes are **mock data** (Step 12a). Google sign-in, plan, remaining time, and Upgrade are the real APIs from Steps 9–10 (shown on **Profile**).
 
-**Sign in with Google** in the debug window opens the **system browser** (not an embedded webview). Google redirects to `http://127.0.0.1:<port>/callback` so Electron can receive the `code` — that tab is **not** the public website. After the token is stored, Pith comes to the front and shows your email and plan. The callback tab explains that and tries to close. Electron sends `code` + `codeVerifier` to `POST /auth/electron/callback` and stores the JWT in **safeStorage**. The same Gmail as the website is one `users` row. Website and Electron sessions stay independent (signing in on one does not log the other in). **Upgrade** (free only) opens the website pricing page in the **system browser** — never Checkout in a webview. After you pay, click back to the app (it refreshes `GET /me`). **Sign out** deletes the local token.
+**+ New note** (orange, always in the top bar) opens the original capture spike. Transcribe still works there. **Back to notepad** returns to the shell.
+
+**Sign in with Google** opens the **system browser** (not an embedded webview). Google redirects to `http://127.0.0.1:<port>/callback` so Electron can receive the `code` — that tab is **not** the public website. After the token is stored, Pith comes to the front. The callback tab explains that and tries to close. Electron sends `code` + `codeVerifier` to `POST /auth/electron/callback` and stores the JWT in **safeStorage**. The same Gmail as the website is one `users` row. Website and Electron sessions stay independent (signing in on one does not log the other in). **Profile** shows email, plan, remaining minutes, and the language menu. **Upgrade** (free only, on Profile) opens the website pricing page in the **system browser** — never Checkout in a webview. After you pay, click back to the app (it refreshes `GET /me`). **Sign in** and **Sign out** share the bottom-left of the sidebar (icon + label: green for sign-in, orange for sign-out). Sign out deletes the local token.
 
 This MVP does not use a custom URL scheme (`pith://`), so a browser tab cannot launch the Mac app. Sign in from the app that is already open; after Google, that window is focused.
 
-1. Choose English or Spanish in the UI (defaults from macOS language).
-2. The level pill is visible immediately (**Listening — not recording**). The **Microphone** line shows the current default input (built-in, AirPods, USB mic, …). Allow **Microphone**. Allow **Screen Recording** — that permission is for **meeting sound** (Zoom / Meet / Teams / YouTube), not to save video or screenshots.
-3. If you just granted Screen Recording, click **Start** (it retries system audio). Speak or play something and confirm the **Mic** / **System** bars move. Silent or missing input → those bars stay still.
+### Notepad mock (Step 12a)
+
+1. Sidebar order: mock **Search**, **Home**, **Profile**, then **Workspace** and the list. **+ Add workspace** under the list opens a name field (Enter to save, Escape to cancel). Language is on **Profile**, not the top bar.
+2. **Home** shows fake workspaces in a centered fixed-width column. Orange **+ New note** (always in the top bar) opens the original headphone spike. Open a workspace to see mock notes.
+3. Notes are grouped by day (Today / date), with an icon, title, and time on the right, in the same centered fixed-width column. Hover or select a note to hide the time and show **...** in that same right slot → **Delete note**. Confirm with **Cancel** or **Delete permanently**. **Processing** notes cannot be deleted. **Failed** notes have **Retry** (mock). Delete workspace only if it is empty and not the last one.
+
+### Capture spike (headphones)
+
+1. Open **+ New note**. The level pill is visible immediately (**Listening — not recording**). The **Microphone** line shows the current default input (built-in, AirPods, USB mic, …). Allow **Microphone**. Allow **Screen Recording** — that permission is for **meeting sound** (Zoom / Meet / Teams / YouTube), not to save video or screenshots.
+2. If you just granted Screen Recording, click **Start** (it retries system audio). Speak or play something and confirm the **Mic** / **System** bars move. Silent or missing input → those bars stay still.
 4. Switch the default input in Sound settings (or unplug AirPods): the name should update and the mic tap should reconnect. If no mic remains, bars stay still and a warning appears. **Start** begins recording and the **HH:MM:SS** clock next to the buttons starts. **Pause** freezes the clock (and both audio sources); **Resume** continues it. **Stop** freezes the clock on the mix length and transcribes. **Cancel** discards the buffer and resets the clock to `00:00:00`. Stop / Cancel return to preview (the pill stays).
 5. Play something in headphones and say a short phrase, then **Stop**.
 6. The mix (16-bit PCM WAV, mono, 16 kHz, `fmt`  + `data` only) is posted to `POST /spike/transcribe`. Long recordings are split on the server into parts of `WAV_CHUNK_SECONDS` (default 10 minutes, under OpenAI’s 25 MB per-file limit), transcribed in order, then concatenated. The transcript appears in the window. The **API terminal** prints an estimated STT cost in USD from the transcription `usage` OpenAI returns, times the current list price on that model’s OpenAI docs page (fetched at runtime, not stored in code or `.env`). That estimate is not shown in the app.
