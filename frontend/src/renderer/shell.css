@@ -40,6 +40,8 @@ body {
 }
 
 .sidebar {
+  position: relative;
+  z-index: 3;
   background: var(--sidebar);
   border-right: 1px solid var(--sidebar-line);
   color: var(--sidebar-ink);
@@ -150,8 +152,52 @@ body {
   gap: 2px;
 }
 
-.workspace-list .nav-item {
+.workspace-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.workspace-entry:hover,
+.workspace-entry:focus-within,
+.workspace-entry.menu-open,
+.workspace-entry.active {
+  background: var(--sidebar-active);
+}
+
+.workspace-name {
+  min-width: 0;
+  padding: 8px 10px;
   font-weight: 400;
+  color: var(--sidebar-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-entry.active .workspace-name {
+  color: #e4dbd2;
+}
+
+.workspace-entry .note-menu {
+  display: none;
+  margin-right: 4px;
+}
+
+.workspace-entry:hover .note-menu,
+.workspace-entry:focus-within .note-menu,
+.workspace-entry.menu-open .note-menu {
+  display: block;
+}
+
+.workspace-entry .note-more {
+  border-color: var(--sidebar-line);
+  color: var(--sidebar-muted);
+  width: 32px;
+  height: 22px;
+  min-width: 32px;
 }
 
 .workspace-list .empty {
@@ -421,12 +467,13 @@ button.auth-link svg {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  min-width: 180px;
+  min-width: 0;
+  width: max-content;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 6px;
-  z-index: 5;
+  border-radius: 8px;
+  padding: 3px;
+  z-index: 15;
   box-shadow: 0 8px 24px rgba(26, 20, 16, 0.08);
 }
 
@@ -436,9 +483,12 @@ button.auth-link svg {
   text-align: left;
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--danger);
-  font-weight: 500;
+  font-weight: 400;
+  font-size: 0.78rem;
+  line-height: 1.3;
+  padding: 4px 10px;
 }
 
 .note-menu-pop .danger-item:hover {
@@ -472,7 +522,7 @@ button.auth-link svg {
 .modal-card h2 {
   margin: 0 0 8px;
   font-size: 1.15rem;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .modal-card p {

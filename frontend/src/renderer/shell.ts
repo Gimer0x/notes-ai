@@ -27,6 +27,11 @@ type View =
   | { name: 'note'; workspaceId: string; noteId: string }
   | { name: 'listen'; workspaceId: string; noteId: string };
 
+type PendingDialog =
+  | { kind: 'delete-note'; note: Note }
+  | { kind: 'delete-workspace'; id: string }
+  | { kind: 'info' };
+
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 
 let locale: Locale = 'en';
@@ -38,7 +43,7 @@ let listenSeconds = 0;
 let listenTimer: number | null = null;
 let searchQuery = '';
 let addingWorkspace = false;
-let pendingDelete: Note | null = null;
+let pendingDialog: PendingDialog | null = null;
 
 let workspaces: Workspace[] = [
   { id: 'ws-personal', nameKey: 'mockWorkspacePersonal' },
@@ -267,8 +272,8 @@ function commitAddWorkspace(): void {
   render();
 }
 
-function closeNoteMenu(): void {
-  document.querySelectorAll('.note-entry.menu-open').forEach((row) => {
+function closeMenus(): void {
+  document.querySelectorAll('.menu-open').forEach((row) => {
     row.classList.remove('menu-open');
   });
   document.querySelectorAll('.note-menu-pop').forEach((menu) => {
@@ -279,36 +284,102 @@ function closeNoteMenu(): void {
   });
 }
 
+function makeOverflowMenu(
+  row: HTMLElement,
+  deleteLabel: string,
+  onDelete: () => void,
+): HTMLElement {
+  const menu = document.createElement('div');
+  menu.className = 'note-menu';
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'ghost icon-btn note-more';
+  more.setAttribute('aria-label', t.moreActions);
+  more.setAttribute('aria-haspopup', 'menu');
+  more.setAttribute('aria-expanded', 'false');
+  more.textContent = '...';
+  const pop = document.createElement('div');
+  pop.className = 'note-menu-pop';
+  pop.hidden = true;
+  pop.setAttribute('role', 'menu');
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'danger-item';
+  del.setAttribute('role', 'menuitem');
+  del.textContent = deleteLabel;
+  pop.append(del);
+  menu.append(more, pop);
+  more.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const willOpen = pop.hidden;
+    closeMenus();
+    if (willOpen) {
+      const rect = more.getBoundingClientRect();
+      pop.style.position = 'fixed';
+      pop.style.top = `${rect.bottom + 6}px`;
+      pop.style.right = `${document.documentElement.clientWidth - rect.right}px`;
+      pop.style.left = 'auto';
+      pop.hidden = false;
+      more.setAttribute('aria-expanded', 'true');
+      row.classList.add('menu-open');
+    }
+  });
+  del.addEventListener('click', (event) => {
+    event.stopPropagation();
+    onDelete();
+  });
+  menu.addEventListener('click', (event) => event.stopPropagation());
+  return menu;
+}
+
 function closeConfirm(): void {
-  pendingDelete = null;
+  pendingDialog = null;
   $('confirmDialog').hidden = true;
+}
+
+function showDialog(title: string, body: string, dangerLabel?: string): void {
+  $('confirmTitle').textContent = title;
+  $('confirmBody').textContent = body;
+  $('confirmCancel').textContent = dangerLabel ? t.cancel : t.dialogOk;
+  $('confirmOk').hidden = !dangerLabel;
+  if (dangerLabel) {
+    $('confirmOk').textContent = dangerLabel;
+  }
+  $('confirmDialog').hidden = false;
 }
 
 function openDeleteConfirm(note: Note): void {
   setMainError('');
   if (note.status === 'processing' || note.status === 'listening' || note.status === 'paused') {
     setMainError(t.errorNoteProcessing);
-    closeNoteMenu();
+    closeMenus();
     return;
   }
-  pendingDelete = note;
-  closeNoteMenu();
-  $('confirmTitle').textContent = t.confirmDeleteNoteTitle;
-  $('confirmBody').textContent = t.confirmDeleteNoteBody;
-  $('confirmCancel').textContent = t.cancel;
-  $('confirmOk').textContent = t.deletePermanently;
-  $('confirmDialog').hidden = false;
+  pendingDialog = { kind: 'delete-note', note };
+  closeMenus();
+  showDialog(t.confirmDeleteNoteTitle, t.confirmDeleteNoteBody, t.deletePermanently);
 }
 
-function confirmDeleteNote(): void {
-  if (!pendingDelete) {
+function confirmPending(): void {
+  if (!pendingDialog) {
     return;
   }
-  const workspaceId = pendingDelete.workspaceId;
-  notes = notes.filter((item) => item.id !== pendingDelete?.id);
-  closeConfirm();
-  view = { name: 'workspace', id: workspaceId };
-  render();
+  if (pendingDialog.kind === 'delete-note') {
+    const workspaceId = pendingDialog.note.workspaceId;
+    const noteId = pendingDialog.note.id;
+    notes = notes.filter((item) => item.id !== noteId);
+    closeConfirm();
+    view = { name: 'workspace', id: workspaceId };
+    render();
+    return;
+  }
+  if (pendingDialog.kind === 'delete-workspace') {
+    const id = pendingDialog.id;
+    workspaces = workspaces.filter((item) => item.id !== id);
+    closeConfirm();
+    view = { name: 'home' };
+    render();
+  }
 }
 
 function setSideError(message: string): void {
@@ -345,22 +416,25 @@ function renderWorkspaces(): void {
     return;
   }
   for (const workspace of visible) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'nav-item';
-    button.textContent = label(workspace.name, workspace.nameKey);
+    const row = document.createElement('div');
+    row.className = 'workspace-entry';
+    row.tabIndex = 0;
+    const name = document.createElement('span');
+    name.className = 'workspace-name';
+    name.textContent = label(workspace.name, workspace.nameKey);
     const selected =
       (view.name === 'workspace' && view.id === workspace.id) ||
       (view.name === 'note' && view.workspaceId === workspace.id) ||
       (view.name === 'listen' && view.workspaceId === workspace.id);
     if (selected) {
-      button.classList.add('active');
+      row.classList.add('active');
     }
-    button.addEventListener('click', () => {
+    row.append(name, makeOverflowMenu(row, t.deleteWorkspace, () => requestDeleteWorkspace(workspace.id)));
+    row.addEventListener('click', () => {
       view = { name: 'workspace', id: workspace.id };
       render();
     });
-    list.append(button);
+    list.append(row);
   }
 }
 
@@ -434,20 +508,10 @@ function renderWorkspace(id: string): void {
   $('mainTitle').textContent = label(workspace.name, workspace.nameKey);
   const items = notesIn(id);
   if (items.length === 0) {
-    $('view').innerHTML = `<p class="empty">${t.emptyNotes}</p>
-      <div class="detail-actions">
-        <button type="button" class="danger" id="deleteWorkspace"></button>
-      </div>`;
-    ($('deleteWorkspace') as HTMLButtonElement).textContent = t.deleteWorkspace;
-    $('deleteWorkspace').addEventListener('click', () => deleteWorkspace(id));
+    $('view').innerHTML = `<p class="empty">${t.emptyNotes}</p>`;
     return;
   }
-  $('view').innerHTML = `<div class="note-feed" id="noteList"></div>
-    <div class="detail-actions">
-      <button type="button" class="danger" id="deleteWorkspace"></button>
-    </div>`;
-  ($('deleteWorkspace') as HTMLButtonElement).textContent = t.deleteWorkspace;
-  $('deleteWorkspace').addEventListener('click', () => deleteWorkspace(id));
+  $('view').innerHTML = `<div class="note-feed" id="noteList"></div>`;
   const list = document.getElementById('noteList') as HTMLElement;
   const ordered = [...items].sort((a, b) => b.at.getTime() - a.at.getTime());
   const groups = new Map<string, Note[]>();
@@ -477,43 +541,8 @@ function renderWorkspace(id: string): void {
       const time = document.createElement('span');
       time.className = 'note-time';
       time.textContent = formatNoteTime(note);
-      const menu = document.createElement('div');
-      menu.className = 'note-menu';
-      const more = document.createElement('button');
-      more.type = 'button';
-      more.className = 'ghost icon-btn note-more';
-      more.setAttribute('aria-label', t.moreActions);
-      more.setAttribute('aria-haspopup', 'menu');
-      more.setAttribute('aria-expanded', 'false');
-      more.textContent = '...';
-      const pop = document.createElement('div');
-      pop.className = 'note-menu-pop';
-      pop.hidden = true;
-      pop.setAttribute('role', 'menu');
-      const del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'danger-item';
-      del.setAttribute('role', 'menuitem');
-      del.textContent = t.deleteNote;
-      pop.append(del);
-      menu.append(more, pop);
-      end.append(time, menu);
+      end.append(time, makeOverflowMenu(row, t.deleteNote, () => openDeleteConfirm(note)));
       row.append(noteIcon(), copy, end);
-      more.addEventListener('click', (event) => {
-        event.stopPropagation();
-        const willOpen = pop.hidden;
-        closeNoteMenu();
-        if (willOpen) {
-          pop.hidden = false;
-          more.setAttribute('aria-expanded', 'true');
-          row.classList.add('menu-open');
-        }
-      });
-      del.addEventListener('click', (event) => {
-        event.stopPropagation();
-        openDeleteConfirm(note);
-      });
-      menu.addEventListener('click', (event) => event.stopPropagation());
       row.addEventListener('click', () => {
         view =
           note.status === 'listening' ||
@@ -667,26 +696,20 @@ function renderListen(workspaceId: string, noteId: string): void {
   });
 }
 
-function deleteWorkspace(id: string): void {
-  setSideError('');
+function requestDeleteWorkspace(id: string): void {
+  closeMenus();
   if (workspaces.length <= 1) {
-    setSideError(t.errorLastWorkspace);
+    pendingDialog = { kind: 'info' };
+    showDialog(t.confirmLastWorkspaceTitle, t.errorLastWorkspace);
     return;
   }
   if (notesIn(id).length > 0) {
-    setSideError(t.errorWorkspaceNotEmpty);
+    pendingDialog = { kind: 'info' };
+    showDialog(t.confirmWorkspaceNotEmptyTitle, t.errorWorkspaceNotEmpty);
     return;
   }
-  if (!window.confirm(t.confirmDeleteWorkspace)) {
-    return;
-  }
-  workspaces = workspaces.filter((item) => item.id !== id);
-  view = { name: 'home' };
-  render();
-}
-
-function deleteNote(note: Note): void {
-  openDeleteConfirm(note);
+  pendingDialog = { kind: 'delete-workspace', id };
+  showDialog(t.confirmDeleteWorkspace, t.confirmDeleteWorkspaceBody, t.deletePermanently);
 }
 
 function render(): void {
@@ -755,7 +778,7 @@ async function init(): Promise<void> {
         closeConfirm();
         return;
       }
-      closeNoteMenu();
+      closeMenus();
       if (addingWorkspace) {
         hideAddWorkspaceForm();
       }
@@ -785,13 +808,13 @@ async function init(): Promise<void> {
   });
   $('openSpike').addEventListener('click', () => pith.shell.openSpike());
   $('confirmCancel').addEventListener('click', () => closeConfirm());
-  $('confirmOk').addEventListener('click', () => confirmDeleteNote());
+  $('confirmOk').addEventListener('click', () => confirmPending());
   $('confirmDialog').addEventListener('click', (event) => {
     if (event.target === $('confirmDialog')) {
       closeConfirm();
     }
   });
-  document.addEventListener('click', () => closeNoteMenu());
+  document.addEventListener('click', () => closeMenus());
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       void refreshMe();
