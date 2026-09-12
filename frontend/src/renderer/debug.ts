@@ -1,101 +1,80 @@
 let locale: Locale = 'en';
 let t: Messages = {};
-let systemAudioEnabled: boolean | null = null;
 let busy = false;
 let awaitingTranscript = false;
 let inputName = '';
 let micLost = false;
+let lastDefaultTitle = '';
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 
 function applyCopy(): void {
   document.documentElement.lang = locale;
-  $('title').textContent = t.appTitle;
-  document.title = t.appTitle;
-  $('languageLabel').textContent = t.language;
-  const lang = document.getElementById('lang') as HTMLSelectElement;
-  lang.options[0].textContent = t.langEn;
-  lang.options[1].textContent = t.langEs;
-  lang.value = locale;
-  $('start').textContent = t.start;
-  $('pause').textContent = t.pause;
-  $('resume').textContent = t.resume;
-  $('stop').textContent = t.stop;
-  $('cancel').textContent = t.cancel;
-  $('resend').textContent = t.resend;
-  $('durationLabel').textContent = t.duration;
-  $('backToNotepad').textContent = t.backToNotepad;
-  $('permissionHint').textContent = t.permissionHint;
-  $('grantAgain').textContent = t.grantAgain;
-  $('transcriptLabel').textContent = t.transcript;
-  $('micLevelLabel').textContent = t.levelMic;
-  $('sysLevelLabel').textContent = t.levelSystem;
+  const title = document.getElementById('noteTitle') as HTMLInputElement;
+  title.placeholder = t.newNote;
+  title.setAttribute('aria-label', t.noteTitleLabel);
+  if (!title.value.trim() || title.value === lastDefaultTitle) {
+    title.value = t.newNote;
+  }
+  lastDefaultTitle = t.newNote;
+  document.title = title.value.trim() || t.newNote;
+  $('listenToggle').textContent = t.stop;
+  $('generate').textContent = t.generate;
+  $('duration').setAttribute('aria-label', t.duration);
+  $('backToNotepad').setAttribute('aria-label', t.home);
+  $('spikeMore').setAttribute('aria-label', t.moreActions);
+  $('moveToTrash').textContent = t.moveToTrash;
+  const notes = document.getElementById('noteBody') as HTMLTextAreaElement;
+  notes.setAttribute('aria-label', t.listenNotesLabel);
+  notes.placeholder = t.listenNotesPlaceholder;
   $('levelPill').setAttribute('aria-label', t.levelPillLabel);
-  $('inputDeviceLabel').textContent = t.inputDevice;
-  void renderAuth();
-  renderSystemAudio();
   renderInputDevice();
   renderDuration();
 }
 
 function renderInputDevice(): void {
-  $('inputDeviceName').textContent = inputName.trim() ? inputName : t.inputDeviceNone;
   $('deviceWarning').textContent = micLost ? t.errorMicLost : '';
+}
+
+function noteBody(): HTMLTextAreaElement {
+  return document.getElementById('noteBody') as HTMLTextAreaElement;
+}
+
+function applyGeneratedText(transcript: string): void {
+  const typed = noteBody().value.trim();
+  const speech = transcript.trim() ? transcript.trim() : t.noSpeech;
+  const body = noteBody();
+  body.value = typed ? `${t.myNotesHeading}\n\n${typed}\n\n${speech}` : speech;
+  body.scrollTop = 0;
+  body.setSelectionRange(0, 0);
+}
+
+function closeSpikeMenu(): void {
+  $('spikeMenuPop').hidden = true;
+  $('spikeMore').setAttribute('aria-expanded', 'false');
+}
+
+async function moveToTrash(): Promise<void> {
+  closeSpikeMenu();
+  const state = await pith.capture.getState();
+  if (state === 'listening' || state === 'paused') {
+    await withBusy(async () => {
+      pauseTimer();
+      await pith.capture.cancel();
+      resetTimer();
+    });
+    const next = await pith.capture.getState();
+    if (next !== 'idle') {
+      return;
+    }
+  }
+  pith.shell.openNotepad();
 }
 
 function applyDevice(device: CaptureDevice): void {
   inputName = device.inputName || '';
   micLost = Boolean(device.lost);
   renderInputDevice();
-}
-
-function planLabel(me: {
-  plan: 'free' | 'paid';
-  planInterval: 'month' | 'year' | null;
-}): string {
-  if (me.plan !== 'paid') {
-    return t.planFree;
-  }
-  if (me.planInterval === 'year') {
-    return t.planPaidYearly;
-  }
-  if (me.planInterval === 'month') {
-    return t.planPaidMonthly;
-  }
-  return t.planPaid;
-}
-
-async function renderAuth(): Promise<void> {
-  const me = await pith.auth.me();
-  $('authStatus').textContent = me
-    ? t.signedInAs.replace('{email}', me.email).replace('{plan}', planLabel(me))
-    : t.signedOut;
-  ($('signIn') as HTMLButtonElement).hidden = Boolean(me);
-  ($('signOut') as HTMLButtonElement).hidden = !me;
-  $('signIn').textContent = t.signIn;
-  $('signOut').textContent = t.signOut;
-  $('upgrade').textContent = t.upgrade;
-  ($('upgrade') as HTMLButtonElement).hidden = !me || me.plan === 'paid';
-  if (!me) {
-    $('quota').textContent = '';
-    return;
-  }
-  const minutes = Math.floor(me.remainingSeconds / 60);
-  const notesLine =
-    me.remainingNotes === null
-      ? t.remainingNotesUnlimited
-      : t.remainingNotesCount.replace('{count}', String(me.remainingNotes));
-  $('quota').textContent = `${t.remainingTime.replace('{minutes}', String(minutes))} · ${notesLine}`;
-}
-
-function renderSystemAudio(): void {
-  if (systemAudioEnabled === true) {
-    $('systemAudio').textContent = t.systemAudioOn;
-  } else if (systemAudioEnabled === false) {
-    $('systemAudio').textContent = t.systemAudioOff;
-  } else {
-    $('systemAudio').textContent = '';
-  }
 }
 
 function errorCode(error: unknown): string {
@@ -160,23 +139,11 @@ function setError(code: string): void {
 
 async function syncButtons(): Promise<void> {
   const state = await pith.capture.getState();
-  const hasLastMix = await pith.capture.hasLastMix();
-  ($('start') as HTMLButtonElement).disabled = busy || state !== 'idle';
-  ($('pause') as HTMLButtonElement).disabled = busy || state !== 'listening';
-  ($('resume') as HTMLButtonElement).disabled = busy || state !== 'paused';
-  ($('stop') as HTMLButtonElement).disabled =
-    busy || (state !== 'listening' && state !== 'paused');
-  ($('cancel') as HTMLButtonElement).disabled =
-    busy || (state !== 'listening' && state !== 'paused');
-  ($('resend') as HTMLButtonElement).disabled = busy || !hasLastMix;
-  const status = awaitingTranscript
-    ? t.statusTranscribing
-    : state === 'listening'
-      ? t.statusListening
-      : state === 'paused'
-        ? t.statusPaused
-        : t.statusMonitoring;
-  $('status').textContent = status;
+  const toggle = $('listenToggle') as HTMLButtonElement;
+  const generate = $('generate') as HTMLButtonElement;
+  toggle.textContent = state === 'paused' ? t.resume : t.stop;
+  toggle.disabled = busy || (state !== 'listening' && state !== 'paused');
+  generate.disabled = busy || (state !== 'listening' && state !== 'paused');
   $('levelPill').hidden = false;
 }
 
@@ -259,27 +226,33 @@ function freezeTimer(seconds: number): void {
   renderDuration(seconds);
 }
 
-const BAR_GAIN = [12, 16, 14];
+const BAR_REST = [0.28, 0.45, 0.32];
+const BAR_PEAK = [0.78, 1, 0.86];
 
 function setBars(container: HTMLElement, level: number): void {
-  const rest = (container.dataset.rest || '8,14,10')
-    .split(',')
-    .map((value) => Number(value));
+  const max = container.clientHeight;
+  if (max <= 0) {
+    return;
+  }
+  const clamped = Math.min(1, Math.max(0, level));
   const bars = container.querySelectorAll('.bar');
   bars.forEach((bar, index) => {
-    const base = rest[index] ?? 8;
-    const gain = BAR_GAIN[index] ?? 12;
-    (bar as HTMLElement).style.height = `${base + level * gain}px`;
+    const rest = BAR_REST[index] ?? 0.3;
+    const peak = BAR_PEAK[index] ?? 1;
+    (bar as HTMLElement).style.height = `${(rest + (peak - rest) * clamped) * max}px`;
   });
 }
 
 function applyLevels(levels: CaptureLevels): void {
-  setBars($('micBars'), levels.mic);
-  setBars($('sysBars'), levels.system);
-  $('levelPill').setAttribute(
-    'aria-valuenow',
-    String(Math.max(levels.mic, levels.system).toFixed(2)),
-  );
+  const mixed = Math.max(levels.mic, levels.system);
+  setBars($('mixBars'), mixed);
+  $('levelPill').setAttribute('aria-valuenow', String(mixed.toFixed(2)));
+}
+
+async function startRecording(): Promise<void> {
+  const result = await pith.capture.start();
+  startTimer();
+  applyDevice({ inputName: result.inputName, lost: !result.inputName });
 }
 
 async function withBusy(fn: () => Promise<void>): Promise<void> {
@@ -305,113 +278,78 @@ async function init(): Promise<void> {
   pith.capture.onDevice(applyDevice);
   await syncButtons();
   await withBusy(async () => {
-    const result = await pith.capture.preview();
-    systemAudioEnabled = result.systemAudioEnabled;
-    applyDevice({ inputName: result.inputName, lost: !result.inputName });
-    renderSystemAudio();
-  });
-
-  (document.getElementById('lang') as HTMLSelectElement).addEventListener(
-    'change',
-    async (event) => {
-      locale = (event.target as HTMLSelectElement).value as Locale;
-      t = await pith.getMessages(locale);
-      applyCopy();
-      await syncButtons();
-    },
-  );
-
-  $('signIn').textContent = t.signIn;
-  $('signOut').textContent = t.signOut;
-  $('backToNotepad').addEventListener('click', () => pith.shell.openNotepad());
-  $('signIn').addEventListener('click', () =>
-    withBusy(async () => {
-      await pith.auth.login();
-      await renderAuth();
-    }),
-  );
-  $('signOut').addEventListener('click', () =>
-    withBusy(async () => {
-      await pith.auth.logout();
-      await renderAuth();
-    }),
-  );
-  $('upgrade').addEventListener('click', () =>
-    withBusy(async () => {
-      await pith.auth.upgrade();
-    }),
-  );
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      void renderAuth();
+    const preview = await pith.capture.preview();
+    applyDevice({ inputName: preview.inputName, lost: !preview.inputName });
+    try {
+      await startRecording();
+    } catch (error) {
+      resetTimer();
+      throw error;
     }
   });
-  $('start').addEventListener('click', () =>
+
+  $('backToNotepad').addEventListener('click', () => pith.shell.openNotepad());
+  const title = document.getElementById('noteTitle') as HTMLInputElement;
+  title.addEventListener('focus', () => {
+    if (title.value === t.newNote) {
+      title.select();
+    }
+  });
+  title.addEventListener('input', () => {
+    document.title = title.value.trim() || t.newNote;
+  });
+  $('spikeMore').addEventListener('click', (event) => {
+    event.stopPropagation();
+    const pop = $('spikeMenuPop');
+    const willOpen = pop.hidden;
+    closeSpikeMenu();
+    if (willOpen) {
+      pop.hidden = false;
+      $('spikeMore').setAttribute('aria-expanded', 'true');
+    }
+  });
+  $('spikeMenu').addEventListener('click', (event) => event.stopPropagation());
+  $('moveToTrash').addEventListener('click', (event) => {
+    event.stopPropagation();
+    void moveToTrash();
+  });
+  document.addEventListener('click', () => closeSpikeMenu());
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeSpikeMenu();
+    }
+  });
+  $('listenToggle').addEventListener('click', () =>
     withBusy(async () => {
-      try {
-        const result = await pith.capture.start();
-        startTimer();
-        systemAudioEnabled = result.systemAudioEnabled;
-        applyDevice({ inputName: result.inputName, lost: !result.inputName });
-        renderSystemAudio();
-      } catch (error) {
-        resetTimer();
-        throw error;
-      }
-    }),
-  );
-  $('pause').addEventListener('click', () =>
-    withBusy(async () => {
-      pauseTimer();
-      try {
-        await pith.capture.pause();
-      } catch (error) {
-        resumeTimer();
-        throw error;
-      }
-    }),
-  );
-  $('resume').addEventListener('click', () =>
-    withBusy(async () => {
-      resumeTimer();
-      try {
-        await pith.capture.resume();
-      } catch (error) {
+      const state = await pith.capture.getState();
+      if (state === 'listening') {
         pauseTimer();
-        throw error;
+        try {
+          await pith.capture.pause();
+        } catch (error) {
+          resumeTimer();
+          throw error;
+        }
+        return;
       }
-    }),
-  );
-  $('stop').addEventListener('click', () =>
-    withBusy(async () => {
-      pauseTimer();
-      awaitingTranscript = true;
-      $('status').textContent = t.statusTranscribing;
-      const result = await pith.capture.stop();
-      systemAudioEnabled = result.systemAudioEnabled;
-      renderSystemAudio();
-      $('transcript').textContent = result.text.trim() ? result.text : t.noSpeech;
-      freezeTimer(result.durationSeconds);
-    }),
-  );
-  $('cancel').addEventListener('click', () =>
-    withBusy(async () => {
-      pauseTimer();
-      try {
-        await pith.capture.cancel();
-        resetTimer();
-      } catch (error) {
+      if (state === 'paused') {
         resumeTimer();
-        throw error;
+        try {
+          await pith.capture.resume();
+        } catch (error) {
+          pauseTimer();
+          throw error;
+        }
       }
     }),
   );
-  $('resend').addEventListener('click', () =>
+  $('generate').addEventListener('click', () =>
     withBusy(async () => {
+      pauseTimer();
       awaitingTranscript = true;
-      $('status').textContent = t.statusTranscribing;
-      const result = await pith.capture.resend();
-      $('transcript').textContent = result.text.trim() ? result.text : t.noSpeech;
+      const result = await pith.capture.stop();
+      applyGeneratedText(result.text);
+      freezeTimer(result.durationSeconds);
     }),
   );
 }

@@ -9,28 +9,180 @@
     <title>Pith Capture Spike</title>
     <style>
       :root {
-        --page: #f7f4ee;
-        --ink: #1c1c19;
-        --cta: #5f6f4a;
-        --muted: #5c5c56;
+        --page: #faf7f1;
+        --surface: #fffcf7;
+        --ink: #4f4842;
+        --muted: #8a8278;
+        --line: #e8e0d4;
+        --accent: #c65a2e;
+        --accent-hover: #a84722;
+        --on-accent: #fff8f2;
+        --wash: #f3d5b8;
+        --danger: #8b2e2e;
+        --sidebar: #322c28;
+        --sign-in: #8fbf96;
+        --sign-in-hover: #a8d0ae;
+      }
+      * {
+        box-sizing: border-box;
       }
       html,
       body {
         margin: 0;
-        min-height: 100%;
+        height: 100%;
         background: var(--page);
         color: var(--ink);
-        font-family: system-ui, sans-serif;
+        font-family: 'Source Sans 3', ui-sans-serif, system-ui, sans-serif;
+        font-weight: 400;
       }
       main {
-        max-width: 720px;
-        margin: 0 auto;
-        padding: 24px;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 16px 20px 20px;
+        display: flex;
+        flex-direction: column;
+      }
+      .spike-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin: 0 0 12px;
+      }
+      .spike-copy {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        padding: 0 48px;
+      }
+      .home-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        padding: 5px 11px 5px 8px;
+        background: transparent;
+        border: 1px solid var(--line);
+        color: var(--muted);
+        border-radius: 999px;
+      }
+      .home-btn svg {
+        display: block;
+        width: 15px;
+        height: 15px;
+      }
+      .home-btn:hover:not(:disabled) {
+        color: var(--ink);
+        background: transparent;
+        border-color: var(--wash);
+      }
+      .note-menu {
+        position: relative;
+      }
+      .note-more {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 26px;
+        min-width: 36px;
+        padding: 0;
+        letter-spacing: 0;
+        font-size: 0;
+        line-height: 0;
+        color: var(--muted);
+        background: transparent;
+      }
+      .note-more::before {
+        content: '';
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: currentColor;
+        box-shadow: -5px 0 0 currentColor, 5px 0 0 currentColor;
+      }
+      .note-menu-pop {
+        position: absolute;
+        top: calc(100% + 6px);
+        right: 0;
+        min-width: 0;
+        width: max-content;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 3px;
+        z-index: 15;
+        box-shadow: 0 8px 24px rgba(26, 20, 16, 0.08);
+      }
+      .note-menu-pop .danger-item {
+        display: block;
+        width: 100%;
+        text-align: left;
+        background: transparent;
+        border: none;
+        border-radius: 6px;
+        color: var(--danger);
+        font-weight: 400;
+        font-size: 0.78rem;
+        line-height: 1.3;
+        padding: 4px 10px;
+      }
+      .note-menu-pop .danger-item:hover:not(:disabled) {
+        background: #f8eeee;
+        border-color: transparent;
       }
       h1 {
-        font-size: 1.4rem;
-        font-weight: 650;
+        font-size: 1.35rem;
+        font-weight: 500;
+        margin: 0 0 16px;
+        color: var(--ink);
+      }
+      .note-title-input {
+        display: block;
+        width: 100%;
         margin: 0 0 12px;
+        padding: 2px 0 8px;
+        border: none;
+        border-radius: 0;
+        background: transparent;
+        font-size: 1.35rem;
+        font-weight: 500;
+        color: var(--ink);
+      }
+      .note-title-input::placeholder {
+        color: var(--muted);
+        font-weight: 400;
+      }
+      .note-title-input:focus {
+        outline: none;
+      }
+      .note-body {
+        display: block;
+        width: 100%;
+        flex: 1;
+        min-height: 8rem;
+        margin: 0 0 8px;
+        padding: 0;
+        border: none;
+        border-radius: 0;
+        background: transparent;
+        resize: none;
+        font: inherit;
+        font-size: 1.05rem;
+        line-height: 1.5;
+        color: var(--ink);
+      }
+      .note-body:focus {
+        outline: none;
+      }
+      .note-body::placeholder {
+        color: var(--muted);
+      }
+      h2 {
+        font-size: 1.05rem;
+        font-weight: 500;
+        margin: 24px 0 10px;
+        color: var(--ink);
       }
       p,
       label {
@@ -47,44 +199,90 @@
       button,
       select {
         font: inherit;
-        border-radius: 8px;
-        border: 1px solid #d4d0c8;
-        padding: 8px 14px;
-        background: #fff;
+        font-weight: 400;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        padding: 8px 16px;
+        background: var(--surface);
         color: var(--ink);
       }
+      button {
+        cursor: pointer;
+      }
+      button:hover:not(:disabled):not(.primary):not(.sign-in):not(.sign-out):not(.danger):not(.home-btn):not(.note-more):not(.danger-item) {
+        background: #fff8f2;
+        border-color: var(--wash);
+      }
       button.primary {
-        background: var(--cta);
-        color: #fff;
-        border-color: var(--cta);
+        background: var(--accent);
+        color: var(--on-accent);
+        border-color: var(--accent);
+      }
+      button.primary:hover:not(:disabled) {
+        background: var(--accent-hover);
+        border-color: var(--accent-hover);
+      }
+      button.ghost {
+        background: transparent;
+      }
+      button.danger {
+        color: var(--danger);
+        border-color: #e2bcbc;
+        background: transparent;
+      }
+      button.danger:hover:not(:disabled) {
+        background: #f8eeee;
+      }
+      button.sign-in {
+        background: transparent;
+        border-color: transparent;
+        color: var(--sign-in);
+        padding-left: 8px;
+        padding-right: 8px;
+      }
+      button.sign-in:hover:not(:disabled) {
+        color: var(--sign-in-hover);
+      }
+      button.sign-out {
+        background: transparent;
+        border-color: transparent;
+        color: #d4896a;
+        padding-left: 8px;
+        padding-right: 8px;
+      }
+      button.sign-out:hover:not(:disabled) {
+        color: #e09b7c;
       }
       button:disabled {
         opacity: 0.45;
+        cursor: default;
       }
-      #status {
-        font-weight: 600;
-        color: var(--ink);
+      button:focus-visible,
+      select:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
       }
       .row.controls {
+        display: flex;
+        justify-content: center;
         align-items: center;
+        gap: 8px;
+        margin: 8px 0 0;
+      }
+      .spike-footer {
+        margin-top: auto;
+        padding-top: 12px;
+        flex-shrink: 0;
       }
       .clock {
         display: flex;
-        flex-direction: column;
+        align-items: center;
         margin-left: 8px;
-        min-width: 7.5rem;
-      }
-      #durationLabel {
-        font-size: 0.72rem;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: var(--muted);
-        line-height: 1.2;
       }
       #duration {
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         font-variant-numeric: tabular-nums;
-        font-weight: 700;
+        font-weight: 500;
         font-size: 1.85rem;
         letter-spacing: 0.04em;
         color: var(--ink);
@@ -92,26 +290,16 @@
         margin: 0;
       }
       #duration[data-running='true'] {
-        color: var(--cta);
-      }
-      #transcript {
-        white-space: pre-wrap;
-        background: #fff;
-        border: 1px solid #e6e1d6;
-        border-radius: 10px;
-        padding: 16px;
-        min-height: 160px;
+        color: var(--accent);
       }
       #error,
       #deviceWarning {
-        color: #8b2e2e;
-      }
-      #inputDeviceRow {
+        color: var(--danger);
         margin: 0 0 8px;
       }
-      #inputDeviceName {
-        color: var(--ink);
-        font-weight: 650;
+      #error:empty,
+      #deviceWarning:empty {
+        display: none;
       }
       [hidden] {
         display: none !important;
@@ -119,114 +307,101 @@
       .level-pill {
         display: inline-flex;
         align-items: center;
-        gap: 14px;
-        margin: 4px 0 12px;
-        padding: 8px 14px;
+        justify-content: center;
+        height: 36px;
+        margin: 0;
+        padding: 0 14px;
+        flex-shrink: 0;
+        overflow: hidden;
         border-radius: 999px;
-        background: rgba(36, 36, 36, 0.92);
-        border: 1px solid rgba(220, 220, 220, 0.22);
-        color: #f4f4f4;
-      }
-      .level-group {
-        display: flex;
-        align-items: center;
-        gap: 8px;
+        background: var(--sidebar);
+        border: 1px solid #4a433d;
       }
       .level-bars {
         display: flex;
         align-items: flex-end;
         gap: 3px;
-        height: 22px;
+        height: 90%;
       }
       .level-bars .bar {
         width: 4px;
         border-radius: 99px;
-        background: #32d74b;
+        background: var(--sign-in);
       }
       .level-bars .bar:nth-child(1) {
-        height: 8px;
+        height: 28%;
       }
       .level-bars .bar:nth-child(2) {
-        height: 14px;
+        height: 45%;
       }
       .level-bars .bar:nth-child(3) {
-        height: 10px;
-      }
-      .level-label {
-        font-size: 0.72rem;
-        letter-spacing: 0.02em;
-        color: rgba(244, 244, 244, 0.72);
+        height: 32%;
       }
     </style>
   </head>
   <body>
     <main>
-      <h1 id="title"></h1>
-      <div class="row">
-        <button id="backToNotepad"></button>
+      <div class="spike-bar">
+        <button type="button" class="home-btn" id="backToNotepad">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M14 5 7 12l7 7"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+        <div class="note-menu" id="spikeMenu">
+          <button type="button" class="note-more" id="spikeMore" aria-haspopup="menu" aria-expanded="false"></button>
+          <div class="note-menu-pop" id="spikeMenuPop" hidden role="menu">
+            <button type="button" class="danger-item" id="moveToTrash" role="menuitem"></button>
+          </div>
+        </div>
       </div>
-      <div class="row">
-        <span id="authStatus"></span>
-        <button id="signIn"></button>
-        <button id="signOut"></button>
-        <button id="upgrade" hidden></button>
+      <div class="spike-copy">
+      <input
+        id="noteTitle"
+        class="note-title-input"
+        maxlength="120"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <textarea id="noteBody" class="note-body"></textarea>
       </div>
-      <p id="quota"></p>
-      <div class="row">
-        <label for="lang" id="languageLabel"></label>
-        <select id="lang">
-          <option value="en"></option>
-          <option value="es"></option>
-        </select>
-      </div>
-      <p id="permissionHint"></p>
-      <p id="grantAgain"></p>
+      <div class="spike-footer">
+      <p id="deviceWarning"></p>
+      <p id="error"></p>
       <div class="row controls">
-        <button class="primary" id="start"></button>
-        <button id="pause"></button>
-        <button id="resume"></button>
-        <button id="stop"></button>
-        <button id="cancel"></button>
-        <button id="resend"></button>
+        <div
+          id="levelPill"
+          class="level-pill"
+          role="meter"
+          aria-valuemin="0"
+          aria-valuemax="1"
+        >
+          <span class="level-bars" id="mixBars">
+            <span class="bar"></span>
+            <span class="bar"></span>
+            <span class="bar"></span>
+          </span>
+        </div>
+        <button type="button" id="listenToggle"></button>
+        <button type="button" class="primary" id="generate"></button>
         <div class="clock">
-          <span id="durationLabel"></span>
           <time id="duration" datetime="PT0S" aria-live="polite">00:00:00</time>
         </div>
       </div>
-      <p id="status"></p>
-      <p id="inputDeviceRow">
-        <span id="inputDeviceLabel"></span>
-        <strong id="inputDeviceName"></strong>
-      </p>
-      <div
-        id="levelPill"
-        class="level-pill"
-        role="meter"
-        aria-valuemin="0"
-        aria-valuemax="1"
-      >
-        <div class="level-group">
-          <span class="level-bars" id="micBars" data-rest="8,14,10">
-            <span class="bar"></span>
-            <span class="bar"></span>
-            <span class="bar"></span>
-          </span>
-          <span class="level-label" id="micLevelLabel"></span>
-        </div>
-        <div class="level-group">
-          <span class="level-bars" id="sysBars" data-rest="8,14,10">
-            <span class="bar"></span>
-            <span class="bar"></span>
-            <span class="bar"></span>
-          </span>
-          <span class="level-label" id="sysLevelLabel"></span>
-        </div>
       </div>
-      <p id="systemAudio"></p>
-      <p id="deviceWarning"></p>
-      <p id="error"></p>
-      <h2 id="transcriptLabel"></h2>
-      <div id="transcript"></div>
     </main>
     <script type="module" src="./debug.js"></script>
   </body>

@@ -46,8 +46,8 @@ function preferredLocale(): 'en' | 'es' {
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 740,
+    width: 960,
+    height: 700,
     title: 'Pith',
     backgroundColor: '#FAF7F1',
     webPreferences: {

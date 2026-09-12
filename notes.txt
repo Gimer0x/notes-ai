@@ -15,3 +15,12 @@ Country: leave Mexico or pick any
 Estimado Cost: 0.1075 USD x 1 hr audio
 
 Real Cost: 0.12 USD x 1 hr audio
+
+
+Check when this should be checked:
+
+"macOS will ask for Microphone and Screen Recording. While developing, the app may appear as Electron (or Pith Capture Helper). Screen Recording is only used to hear other apps (Zoom, Meet, Teams), not to save video or screenshots."
+
+Bugs:
+
+1. If user press home in the capture window, the app crashes.

@@ -120,7 +120,7 @@ npm start
 
 `npm start` builds the Swift helper, then opens the **notepad shell**. Workspaces and notes are **mock data** (Step 12a). Google sign-in, plan, remaining time, and Upgrade are the real APIs from Steps 9–10 (shown on **Profile**).
 
-**+ New note** (orange, always in the top bar) opens the original capture spike. Transcribe still works there. **Back to notepad** returns to the shell.
+**+ New note** (orange, always in the top bar) opens the original capture spike and **starts recording immediately**. The spike uses the same cream page and pill buttons as the notepad. The screen title is an editable **New note** field. Below it is a borderless notes field with a subtle **Write notes...** / **Escribe tus notas...** placeholder. Controls sit at the bottom: meter → **Stop** / **Resume** → **Generate** → clock. The notepad and New note screens share the same window size. **Stop** pauses; the same button then says **Resume**. **Generate** transcribes the mix and writes it into that same notes field (**My notes:** and typed notes first, then the transcript; transcript only if there were no notes). The field stays scrolled to the top. There is no separate transcript box. A subtle **Home** control returns to the notepad. Top-right **...** → **Move to trash** discards an in-progress listen and returns to the notepad. Sign-in and language stay on **Profile**.
 
 **Sign in with Google** opens the **system browser** (not an embedded webview). Google redirects to `http://127.0.0.1:<port>/callback` so Electron can receive the `code` — that tab is **not** the public website. After the token is stored, Pith comes to the front. The callback tab explains that and tries to close. Electron sends `code` + `codeVerifier` to `POST /auth/electron/callback` and stores the JWT in **safeStorage**. The same Gmail as the website is one `users` row. Website and Electron sessions stay independent (signing in on one does not log the other in). **Profile** shows email, plan, remaining minutes, and the language menu. **Upgrade** (free only, on Profile) opens the website pricing page in the **system browser** — never Checkout in a webview. After you pay, click back to the app (it refreshes `GET /me`). **Sign in** and **Sign out** share the bottom-left of the sidebar (icon + label: green for sign-in, orange for sign-out). Sign out deletes the local token.
 
@@ -134,15 +134,15 @@ This MVP does not use a custom URL scheme (`pith://`), so a browser tab cannot l
 
 ### Capture spike (headphones)
 
-1. Open **+ New note**. The level pill is visible immediately (**Listening — not recording**). The **Microphone** line shows the current default input (built-in, AirPods, USB mic, …). Allow **Microphone**. Allow **Screen Recording** — that permission is for **meeting sound** (Zoom / Meet / Teams / YouTube), not to save video or screenshots.
-2. If you just granted Screen Recording, click **Start** (it retries system audio). Speak or play something and confirm the **Mic** / **System** bars move. Silent or missing input → those bars stay still.
-4. Switch the default input in Sound settings (or unplug AirPods): the name should update and the mic tap should reconnect. If no mic remains, bars stay still and a warning appears. **Start** begins recording and the **HH:MM:SS** clock next to the buttons starts. **Pause** freezes the clock (and both audio sources); **Resume** continues it. **Stop** freezes the clock on the mix length and transcribes. **Cancel** discards the buffer and resets the clock to `00:00:00`. Stop / Cancel return to preview (the pill stays).
-5. Play something in headphones and say a short phrase, then **Stop**.
-6. The mix (16-bit PCM WAV, mono, 16 kHz, `fmt`  + `data` only) is posted to `POST /spike/transcribe`. Long recordings are split on the server into parts of `WAV_CHUNK_SECONDS` (default 10 minutes, under OpenAI’s 25 MB per-file limit), transcribed in order, then concatenated. The transcript appears in the window. The **API terminal** prints an estimated STT cost in USD from the transcription `usage` OpenAI returns, times the current list price on that model’s OpenAI docs page (fetched at runtime, not stored in code or `.env`). That estimate is not shown in the app.
+1. Open **+ New note**. Recording starts automatically. The level pill sits to the left of **Stop**. Allow **Microphone**. Allow **Screen Recording** — that permission is for **meeting sound** (Zoom / Meet / Teams / YouTube), not to save video or screenshots.
+2. If you just granted Screen Recording, open **+ New note** again (it retries system audio). Speak or play something and confirm the level bars move. Silent or missing input → those bars stay still.
+4. Switch the default input in Sound settings (or unplug AirPods): the name should update and the mic tap should reconnect. If no mic remains, bars stay still and a warning appears. The **HH:MM:SS** clock starts with the listen. **Stop** pauses both sources and the clock; the button becomes **Resume**. **Generate** freezes the clock on the mix length and transcribes. **Move to trash** discards the buffer and returns to the notepad.
+5. Play something in headphones and say a short phrase, then **Generate**.
+6. The mix (16-bit PCM WAV, mono, 16 kHz, `fmt`  + `data` only) is posted to `POST /spike/transcribe`. Long recordings are split on the server into parts of `WAV_CHUNK_SECONDS` (default 10 minutes, under OpenAI’s 25 MB per-file limit), transcribed in order, then concatenated. The combined text is written into the notes field **after Generate** (**My notes:** first, then the transcript; transcript only if nothing was typed). Mic and system levels still show in the pill. The **API terminal** prints an estimated STT cost in USD from the transcription `usage` OpenAI returns, times the current list price on that model’s OpenAI docs page (fetched at runtime, not stored in code or `.env`). That estimate is not shown in the app.
 
-Status should show **System audio: on** when Screen Recording is allowed. If it stays off, the app continues **mic-only** and warns that other people may be missing.
+If Screen Recording is allowed, system audio is mixed in. If it stays off, the app continues **mic-only** (other people may be missing, especially with headphones).
 
-Pause / Resume pauses both sources. Cancel discards the buffer. **Resend last mix** retries STT from memory until you quit (nothing is written into the git repo). The button stays disabled until a Stop has stored a mix. Restarting the Mac app clears that mix — if transcribe failed, keep the window open, restart only the API, then Resend.
+**Stop** / **Resume** pauses or continues both sources. **Generate** transcribes. **Move to trash** discards the buffer and returns to the notepad. Restarting the Mac app clears the last mix.
 
 In System Settings → Privacy & Security:
 
@@ -150,7 +150,7 @@ In System Settings → Privacy & Security:
 - **Granola** in that list is the *other* Granola app (the commercial notepad), not this repo. Leave it on if you use that product; it does not grant permission to Pith.
 - **Screen & System Audio Recording** is for meeting playback (Zoom / Meet / Teams / YouTube). Grant it to **Electron** or **Pith Capture Helper** the same way.
 
-On first **Start**, macOS should show a Microphone prompt. If **Pith Capture Helper** still does not appear, look for **Electron**.
+On first **New note**, macOS should show a Microphone prompt. If **Pith Capture Helper** still does not appear, look for **Electron**.
 
 ## WAV encoding
 
