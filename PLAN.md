@@ -30,7 +30,7 @@ Paid access is a real **Stripe Checkout** subscription (**$7.99/month** or **$87
 11. **USD only.** Do not add other currencies or localized prices in this MVP.
 12. Meeting languages: **English and Spanish only.** Detect the meeting language; write the bullet summary in that language. Do not add other languages.
 13. Do not implement organizations, team seats, or Windows installers beyond the preparation below.
-14. **Capture** is a dedicated desktop module in Electron **main** (Swift helper or native addon — not the renderer). **macOS 14.2+:** **AVAudioEngine** for the microphone, **ScreenCaptureKit** for system audio (**audio only** — no video frames, no screenshots). Mix both to 16-bit PCM mono 16 kHz. Do **not** use Core Audio process taps, AVCapture for the meeting, or a virtual driver. Older OS → mic-only + warning.
+14. **Capture** is a dedicated desktop module in Electron **main** (Swift helper or native addon — not the renderer). **macOS 14.2+:** **AVAudioEngine** for the microphone, **Core Audio process tap** for system audio (global, all apps, no display capture — DRM video such as Netflix stays visible). Do not bind the tap to the output device or rebuild it when headphones change — that interrupts listening. **Do not use ScreenCaptureKit** (display capture blanks DRM video). Mix both to 16-bit PCM mono 16 kHz. Do **not** use AVCapture for the meeting or a virtual driver. Older OS → mic-only + warning.
 
 ## Checkout strategy (locked)
 
@@ -209,19 +209,19 @@ Implement **in this order**. Each step must compile, use `.env`, follow SOLID, u
 
 ### Module boundaries
 
-- **Capture** — Electron **main** only: **AVAudioEngine** (mic) + **ScreenCaptureKit** (system audio, no video) → mix to 16-bit PCM mono 16 kHz. Renderer never talks to SCK or Core Audio.
+- **Capture** — Electron **main** only: **AVAudioEngine** (mic) + **Core Audio process tap** (system audio, no screen) → mix to 16-bit PCM mono 16 kHz. No ScreenCaptureKit. Renderer never talks to Core Audio.
 - **Transcribe (spike)** — NestJS: accept one audio blob, call OpenAI STT, return text. No notes DB. Used to prove capture. Curl-friendly.
 - **Auth / Billing / Workspaces / Notes / Summarization (bullets)** — only after capture is proven (after Step 5). Device-tap reconnect is Step 6; product backend starts at Step 7.
 
 ### Interface contracts (locked)
 
-These are the agreements between modules. Implement to these shapes. Do **not** rename methods, HTTP paths, or JSON fields. The React UI never imports ScreenCaptureKit, Stripe, or OpenAI.
+These are the agreements between modules. Implement to these shapes. Do **not** rename methods, HTTP paths, or JSON fields. The React UI never imports Core Audio, Stripe, or OpenAI.
 
 Audio on the wire is always **16-bit PCM WAV, mono, 16 kHz**. HTTP paths stay as in **Backend API contract** below (`/auth/electron/callback`, `/notes/:id/stop`, `GET /me` — not `/auth/google/exchange`, `/notes/:id/upload`, or `/billing/quota`).
 
 #### 1. Capture (Electron main → renderer)
 
-Renderer talks only to this. Native SCK / AVAudioEngine stay behind it.
+Renderer talks only to this. Native process tap / AVAudioEngine stay behind it.
 
 ```
 CaptureService
@@ -247,7 +247,7 @@ CaptureDevice
   inputName: string         // macOS default input name (AirPods, USB mic, built-in, …)
 ```
 
-Guarantees: mixes mic + system audio (or mic-only if `systemAudioEnabled` is false). `preview()` opens the mic and system-audio taps for live levels only (no WAV buffer). `start()` begins recording into the mix. `stop()` returns **one** WAV (product HTTP layer splits by `WAV_CHUNK_SECONDS`) and returns to preview. `cancel()` and successful upload delete the temp file. Never write into the git repo. `pause` auto-cancel timing comes from `GET /config`, not from this module. `subscribeLevels` fires while previewing or recording (and may fire at 0,0 while paused). `subscribeDevice` fires whenever the selected default **input** name is known or changes (preview, Start, and live device change). Do **not** rename existing methods.
+Guarantees: mixes mic + system audio (or mic-only if `systemAudioEnabled` is false). `preview()` opens the mic and system-audio taps for live levels only (no WAV buffer). `start()` begins recording into the mix. `stop()` returns **one** WAV (product HTTP layer splits by `WAV_CHUNK_SECONDS`) and **releases** the mic and system-audio taps (`idle`). `cancel()` does the same without a WAV. Never write into the git repo. `pause` auto-cancel timing comes from `GET /config`, not from this module. `subscribeLevels` fires while previewing or recording (and may fire at 0,0 while paused). `subscribeDevice` fires whenever the selected default **input** name is known or changes (preview, Start, and live device change). Do **not** rename existing methods.
 
 #### 2. Auth (Electron ↔ backend)
 
@@ -415,9 +415,9 @@ Do not scatter these numbers in React, Swift, or Nest handlers. Audio sample rat
 
 **Do:** One module in Electron **main** (native macOS):
 
-- Request **Microphone** and **Screen Recording** (SCK audio tap only — no video/frames/screenshots). UI copy: meeting *sound*, not the screen.
-- **macOS 14.2+:** **AVAudioEngine** for microphone, **ScreenCaptureKit** for system audio (`capturesVideo` / video output **off**). Mix to 16-bit PCM, mono, 16 kHz; encode a **canonical WAV** (`fmt ` + `data` only — no `JUNK` or other extra chunks) for upload. Pause / Resume / Stop both sources.
-- Do **not** use Core Audio process taps, BlackHole, or a second system-audio API.
+- Request **Microphone** and **Screen Recording** (system-audio permission — no video/frames/screenshots). UI copy: meeting *sound*, not the screen.
+- **macOS 14.2+:** **AVAudioEngine** for microphone, **Core Audio process tap** for system audio (no display capture). Mix to 16-bit PCM, mono, 16 kHz; encode a **canonical WAV** (`fmt ` + `data` only — no `JUNK` or other extra chunks) for upload. Pause / Resume / Stop both sources.
+- Do **not** use BlackHole or a virtual mixer. Do **not** use ScreenCaptureKit. If the process tap cannot start, continue **mic-only**.
 - On Stop, POST the mix to `POST /spike/transcribe` with the spike key (key stays in Electron **main** env, never in the renderer)
 - Minimal **debug window**: Start, Stop, status (system audio on / denied / mic-only), and the returned transcript
 - Denied or old OS: mic-only + warning. No BlackHole / virtual mixer
@@ -433,7 +433,7 @@ Do not scatter these numbers in React, Swift, or Nest handlers. Audio sample rat
 
 **Do:** Show a compact **Granola-style** pill in the existing Electron debug window as soon as the window opens: a few vertical green bars driven by **live RMS** from the capture helper (not a looping CSS animation). Bars must reflect real signal from the microphone and/or system-audio tap. **Start** begins recording; before that the taps are preview-only (levels, no WAV).
 
-- Call `CaptureService.preview()` when the debug window loads so levels run without recording. Keep the pill visible while idle, recording, and paused. Stop / Cancel return to preview (do not hide the pill).
+- Call `CaptureService.preview()` when the debug window loads so levels run without recording. Keep the pill visible while idle, recording, and paused. **Generate** / **Cancel** release the mic and system-audio tap (do not keep capturing in the background). The pill can stay visible at 0.
 - Stream levels from the helper → Electron main → renderer (`CaptureService.subscribeLevels`). `mic` and `system` are each `0..1`.
 - **If the microphone is not detected, missing, or silent:** the mic-driven bars **must not move**. Do not fake activity.
 - **If system audio is off, denied, or silent:** those bars stay still. Mic bars may still move if the mic has signal.
@@ -607,7 +607,7 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 | Electron auth | System browser, **PKCE**, **loopback** `127.0.0.1`; backend issues **JWT** (`safeStorage`). No webview, no custom scheme. Website uses a separate Web OAuth client + cookie. |
 | Title | User-typed; else **first bullet** |
 | Build order | **Capture first** (Steps 1–5). Live levels (4) and tap reconnect (6) stay in the spike. Product (auth, Stripe, notes) only after headphone transcript passes (Step 5); website is Step 8 |
-| Capture | **AVAudioEngine** (mic) + **ScreenCaptureKit** (system audio, no video); mix **16-bit PCM WAV, mono, 16 kHz**; product upload **chunks at 10 min**; no CATap, no driver |
+| Capture | **AVAudioEngine** (mic) + **Core Audio process tap** (system audio, no screen; no SCK); mix **16-bit PCM WAV, mono, 16 kHz**; product upload **chunks at 10 min**; no virtual driver |
 | Pause | **Auto-cancel after 20 minutes** paused (discard); warn at 1 minute left |
 | Offline / upload | Keep buffering while listening; retry upload **10 minutes** on Stop; then warn and discard. Quit discards unsent audio |
 | Retry failed note | `POST /notes/:id/retry`: STT if WAV still in job temp; GPT if `transcript_text` exists; else record again |

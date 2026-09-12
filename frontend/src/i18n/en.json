@@ -28,6 +28,7 @@
   "errorNoKey": "CAPTURE_SPIKE_KEY is missing in frontend/.env (same value as backend/.env).",
   "errorEmpty": "No audio was captured. Try Start, speak, then Stop.",
   "errorTooShort": "That clip was too short for transcription. Keep listening for at least a second, then Stop.",
+  "errorNotListening": "Capture was not recording. Start a new note, then Generate.",
   "errorFileTooLarge": "That recording is too large to upload at once. Restart the API (long mixes are now split) and try again.",
   "errorNoLastMix": "There is no mix to resend. Record again, then Stop. Restarting the app discards the last mix.",
   "errorSpike": "Transcribe failed",

@@ -122,7 +122,9 @@ function setError(code: string): void {
                   ? t.errorFileTooLarge
                   : code === 'no_last_mix'
                     ? t.errorNoLastMix
-                : code === 'mic_format'
+                  : code === 'not_listening'
+                    ? t.errorNotListening
+            : code === 'mic_format'
                 ? t.errorMicDenied
             : code === 'no_google_client'
               ? t.errorNoGoogleClient
@@ -256,6 +258,9 @@ async function startRecording(): Promise<void> {
 }
 
 async function withBusy(fn: () => Promise<void>): Promise<void> {
+  if (busy) {
+    return;
+  }
   busy = true;
   $('error').textContent = '';
   await syncButtons();

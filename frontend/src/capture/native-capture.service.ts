@@ -85,15 +85,23 @@ export class NativeCaptureService implements CaptureService {
   }
 
   async stop(): Promise<CapturedAudio> {
-    const msg = await this.helper.send('stop');
-    this.state = 'idle';
-    if (!msg.filePath) {
-      throw new Error('empty');
+    try {
+      const msg = await this.helper.send('stop');
+      this.state = 'idle';
+      if (!msg.filePath) {
+        throw new Error('empty');
+      }
+      return {
+        filePath: msg.filePath,
+        durationSeconds: msg.durationSeconds ?? 0,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (message === 'not_listening' || message === 'empty' || message === 'too_short') {
+        this.state = 'idle';
+      }
+      throw error;
     }
-    return {
-      filePath: msg.filePath,
-      durationSeconds: msg.durationSeconds ?? 0,
-    };
   }
 
   async cancel(): Promise<void> {

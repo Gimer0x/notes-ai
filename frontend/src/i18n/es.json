@@ -28,6 +28,7 @@
   "errorNoKey": "Falta CAPTURE_SPIKE_KEY en frontend/.env (el mismo valor que en backend/.env).",
   "errorEmpty": "No se capturó audio. Pulsa Iniciar, habla y luego Detener.",
   "errorTooShort": "El clip es demasiado corto para transcribir. Escucha al menos un segundo y luego Detener.",
+  "errorNotListening": "No había una grabación en curso. Abre una nota nueva y luego pulsa Generar.",
   "errorFileTooLarge": "La grabación es demasiado larga para subirla de una vez. Reinicia el backend (ahora parte las mezclas largas) e inténtalo de nuevo.",
   "errorNoLastMix": "No hay mezcla para reenviar. Graba de nuevo y pulsa Detener. Al reiniciar la app se descarta la última mezcla.",
   "errorSpike": "Falló la transcripción",

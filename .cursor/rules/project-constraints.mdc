@@ -6,7 +6,7 @@ alwaysApply: true
 # Project constraints
 
 - Three projects by the end: `backend/`, `website/`, `frontend/`. **Build capture first** (backend transcribe spike + Electron mix). Do not start Google, Stripe, or the website until a headphone transcript proves system audio.
-- Reusable modules (auth, workspaces, notes, listening/capture, summarization, billing). macOS **14.2+** capture: **AVAudioEngine** (mic) + **ScreenCaptureKit** (system audio only, no video). Mix to 16-bit PCM mono 16 kHz. Do not use Core Audio process taps. Never record screen/video. Never install virtual audio drivers.
+- Reusable modules (auth, workspaces, notes, listening/capture, summarization, billing). macOS **14.2+** capture: **AVAudioEngine** (mic) + **Core Audio process tap** for system audio (no display capture, so DRM video stays on screen). **Do not use ScreenCaptureKit.** Mix to 16-bit PCM mono 16 kHz. Never record screen/video. Never install virtual audio drivers.
 - First ship is **macOS only**. Prepare electron-builder for a future Windows `.exe`; do not build or test Windows unless asked.
 - **Stripe Checkout is in scope**, in the **system browser**, returning to the **website**. Never embed Checkout in an Electron webview. Isolate Stripe in a billing module. Notes, listening, and auth must not import Stripe.
 - Electron Google login: **system browser**, **PKCE**, **loopback** (`http://127.0.0.1:<port>/callback`). Backend exchanges the code and issues a JWT stored in `safeStorage`. No embedded webview, no custom URL scheme. The website uses a separate Google **Web** client and httpOnly cookies.
