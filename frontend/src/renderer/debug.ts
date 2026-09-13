@@ -49,7 +49,8 @@ function applyGeneratedText(transcript: string): void {
   const typed = noteBody().value.trim();
   const speech = transcript.trim() ? transcript.trim() : t.noSpeech;
   const body = noteBody();
-  body.value = typed ? `${t.myNotesHeading}\n\n${typed}\n\n${speech}` : speech;
+  const block = `${t.transcriptHeading}\n\n${speech}`;
+  body.value = typed ? `${t.myNotesHeading}\n\n${typed}\n\n${block}` : block;
   body.scrollTop = 0;
   body.setSelectionRange(0, 0);
 }

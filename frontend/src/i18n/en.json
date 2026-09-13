@@ -105,6 +105,7 @@
   "listenNotesLabel": "Notes",
   "listenNotesPlaceholder": "Write notes...",
   "myNotesHeading": "My notes:",
+  "transcriptHeading": "Transcript:",
   "listeningMockHint": "Mock listen. Pause freezes the clock; Resume continues; Stop shows sample bullets. This does not record audio.",
   "mockWorkspacePersonal": "Personal",
   "mockWorkspaceClient": "Client A",

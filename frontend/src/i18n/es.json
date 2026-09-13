@@ -105,6 +105,7 @@
   "listenNotesLabel": "Notas",
   "listenNotesPlaceholder": "Escribe tus notas...",
   "myNotesHeading": "Mis notas:",
+  "transcriptHeading": "Transcripción:",
   "listeningMockHint": "Escucha de prueba. Pausa congela el reloj; Reanudar sigue; Detener muestra viñetas de ejemplo. No graba audio.",
   "mockWorkspacePersonal": "Personal",
   "mockWorkspaceClient": "Cliente A",
