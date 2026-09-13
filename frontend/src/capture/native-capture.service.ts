@@ -94,10 +94,18 @@ export class NativeCaptureService implements CaptureService {
       return {
         filePath: msg.filePath,
         durationSeconds: msg.durationSeconds ?? 0,
+        micFilePath: msg.micFilePath,
+        systemFilePath: msg.systemFilePath,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
-      if (message === 'not_listening' || message === 'empty' || message === 'too_short') {
+      if (
+        message === 'not_listening' ||
+        message === 'empty' ||
+        message === 'too_short' ||
+        message === 'helper_exit' ||
+        message === 'helper_timeout'
+      ) {
         this.state = 'idle';
       }
       throw error;

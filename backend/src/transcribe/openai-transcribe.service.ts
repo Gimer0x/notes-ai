@@ -20,6 +20,41 @@ import type { MeetingLanguage, TranscriptResult, TranscribeService } from './tra
 
 const DEFAULT_MODEL = 'gpt-4o-mini-transcribe';
 
+const STT_PROMPT_ECHOES = [
+  'Transcribe all speech in this application playback from the beginning. Ignore trailing silence. The language may be English or Spanish.',
+  'Transcribe the microphone speech from the beginning to the end. The language may be English or Spanish.',
+  'Transcribe every spoken word from the start of this clip to the end. The audio may include English and Spanish, app playback, and a microphone.',
+];
+
+function sttPrompt(originalName: string): string {
+  const name = originalName.toLowerCase();
+  if (name.includes('system') || name.includes('sys')) {
+    return STT_PROMPT_ECHOES[0];
+  }
+  if (name.includes('mic')) {
+    return STT_PROMPT_ECHOES[1];
+  }
+  return STT_PROMPT_ECHOES[2];
+}
+
+/** gpt-4o-mini-transcribe often copies the `prompt` into `text`. Keep the spoken words only. */
+export function stripSttPromptEcho(text: string): string {
+  let out = text.trim();
+  let changed = true;
+  while (changed && out) {
+    changed = false;
+    for (const prompt of STT_PROMPT_ECHOES) {
+      const escaped = prompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+      const next = out.replace(new RegExp(`^${escaped}[\\s"'“”‘’.:;,-]*`, 'i'), '').trim();
+      if (next !== out) {
+        out = next;
+        changed = true;
+      }
+    }
+  }
+  return out;
+}
+
 @Injectable()
 export class OpenAiTranscribeService implements TranscribeService {
   constructor(private readonly config: ConfigService) {}
@@ -58,6 +93,11 @@ export class OpenAiTranscribeService implements TranscribeService {
           prepared === buffer
             ? originalName || `audio-${index}.wav`
             : 'audio.wav';
+        const duration = wavDurationSeconds(prepared) ?? 0;
+        const prompt = sttPrompt(originalName);
+        console.log(
+          `stt start file=${filename} duration=${duration.toFixed(2)}s bytes=${prepared.length} model=${model}`,
+        );
         const file = await toFile(prepared, filename, {
           type: filename.endsWith('.wav') ? 'audio/wav' : undefined,
         });
@@ -65,11 +105,18 @@ export class OpenAiTranscribeService implements TranscribeService {
         const result = await openai.audio.transcriptions.create({
           file,
           model,
-          ...(useVerbose ? { response_format: 'verbose_json' as const } : {}),
+          // Whisper uses prompt as prior transcript context. gpt-4o-mini-transcribe
+          // treats it as an instruction and often copies it into the notes.
+          ...(useVerbose
+            ? { prompt, response_format: 'verbose_json' as const }
+            : {}),
         });
 
-        const text = result.text.trim();
+        const text = stripSttPromptEcho(result.text ?? '');
         parts.push(text);
+        console.log(
+          `stt done file=${filename} chars=${text.length} preview=${text.replace(/\s+/g, ' ').slice(0, 80)}`,
+        );
         language = useVerbose
           ? this.fromApiLanguage(
               'language' in result ? String(result.language) : undefined,
@@ -77,7 +124,7 @@ export class OpenAiTranscribeService implements TranscribeService {
           : this.fromTranscript(text);
         usage = addUsage(
           usage,
-          usageFromTranscription(result, wavDurationSeconds(prepared) ?? 0),
+          usageFromTranscription(result, duration),
         );
       }
     } catch (error) {

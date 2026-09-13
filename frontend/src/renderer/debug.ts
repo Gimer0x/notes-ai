@@ -5,6 +5,10 @@ let awaitingTranscript = false;
 let inputName = '';
 let micLost = false;
 let lastDefaultTitle = '';
+let captureFinished = false;
+let heardSound = false;
+let minListenSeconds: number | null = null;
+let captureState: 'idle' | 'listening' | 'paused' = 'idle';
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 
@@ -30,6 +34,7 @@ function applyCopy(): void {
   $('levelPill').setAttribute('aria-label', t.levelPillLabel);
   renderInputDevice();
   renderDuration();
+  applyGenerateEnabled();
 }
 
 function renderInputDevice(): void {
@@ -81,11 +86,14 @@ function errorCode(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
   const known = [
     'helper_missing',
+    'helper_exit',
+    'helper_timeout',
     'mic_denied',
     'macos_only',
     'no_spike_key',
     'empty',
     'too_short',
+    'config_failed',
     'no_google_client',
     'auth_denied',
     'auth_failed',
@@ -108,6 +116,8 @@ function setError(code: string): void {
   const mapped =
     code === 'helper_missing'
       ? t.errorHelperMissing
+      : code === 'helper_exit' || code === 'helper_timeout'
+        ? t.errorHelperExit
       : code === 'mic_denied'
         ? t.errorMicDenied
         : code === 'macos_only'
@@ -117,7 +127,12 @@ function setError(code: string): void {
             : code === 'empty'
               ? t.errorEmpty
               : code === 'too_short'
-                ? t.errorTooShort
+                ? t.errorTooShort.replace(
+                    '{seconds}',
+                    String(minListenSeconds ?? ''),
+                  )
+                : code === 'config_failed'
+                  ? t.errorConfig
                 : code === 'File too large'
                   ? t.errorFileTooLarge
                   : code === 'no_last_mix'
@@ -140,12 +155,26 @@ function setError(code: string): void {
 }
 
 async function syncButtons(): Promise<void> {
-  const state = await pith.capture.getState();
+  captureState = await pith.capture.getState();
+  applyGenerateEnabled();
+}
+
+function listenedEnough(): boolean {
+  return minListenSeconds != null && recordedSeconds() + 1e-6 >= minListenSeconds;
+}
+
+function applyGenerateEnabled(): void {
   const toggle = $('listenToggle') as HTMLButtonElement;
   const generate = $('generate') as HTMLButtonElement;
-  toggle.textContent = state === 'paused' ? t.resume : t.stop;
-  toggle.disabled = busy || (state !== 'listening' && state !== 'paused');
-  generate.disabled = busy || (state !== 'listening' && state !== 'paused');
+  toggle.textContent = captureState === 'paused' ? t.resume : t.stop;
+  toggle.disabled =
+    busy || captureFinished || (captureState !== 'listening' && captureState !== 'paused');
+  generate.disabled =
+    busy ||
+    captureFinished ||
+    (captureState !== 'listening' && captureState !== 'paused') ||
+    !listenedEnough();
+  generate.textContent = t.generate;
   $('levelPill').hidden = false;
 }
 
@@ -174,13 +203,44 @@ function renderDuration(seconds = recordedSeconds()): void {
   el.textContent = clock;
   el.setAttribute('datetime', `PT${Math.floor(Math.max(0, seconds))}S`);
   el.setAttribute('data-running', runningSince != null ? 'true' : 'false');
+  applyGenerateEnabled();
+}
+
+let configRetryAt = 0;
+let configError = false;
+
+async function ensureMinListenConfig(): Promise<void> {
+  if (minListenSeconds != null) {
+    return;
+  }
+  const now = Date.now();
+  if (now < configRetryAt) {
+    return;
+  }
+  configRetryAt = now + 2000;
+  try {
+    const config = await pith.getConfig();
+    minListenSeconds = config.minListenSeconds;
+    if (configError) {
+      configError = false;
+      if ($('error').textContent === t.errorConfig) {
+        $('error').textContent = '';
+      }
+    }
+    applyGenerateEnabled();
+  } catch {
+    minListenSeconds = null;
+  }
 }
 
 function ensureTicker(): void {
   if (tickId != null) {
     return;
   }
-  tickId = window.setInterval(() => renderDuration(), 200);
+  tickId = window.setInterval(() => {
+    void ensureMinListenConfig();
+    renderDuration();
+  }, 200);
 }
 
 function stopTicker(): void {
@@ -191,6 +251,7 @@ function stopTicker(): void {
 }
 
 function resetTimer(): void {
+  heardSound = false;
   recordedMs = 0;
   runningSince = null;
   stopTicker();
@@ -249,12 +310,26 @@ function applyLevels(levels: CaptureLevels): void {
   const mixed = Math.max(levels.mic, levels.system);
   setBars($('mixBars'), mixed);
   $('levelPill').setAttribute('aria-valuenow', String(mixed.toFixed(2)));
+  if (
+    !heardSound &&
+    !captureFinished &&
+    captureState === 'listening' &&
+    mixed > 0
+  ) {
+    heardSound = true;
+    startTimer();
+  }
 }
 
 async function startRecording(): Promise<void> {
+  if (captureFinished) {
+    return;
+  }
+  resetTimer();
   const result = await pith.capture.start();
-  startTimer();
+  captureState = 'listening';
   applyDevice({ inputName: result.inputName, lost: !result.inputName });
+  applyGenerateEnabled();
 }
 
 async function withBusy(fn: () => Promise<void>): Promise<void> {
@@ -279,9 +354,18 @@ async function init(): Promise<void> {
   locale = await pith.getLocale();
   t = await pith.getMessages(locale);
   applyCopy();
+  try {
+    const config = await pith.getConfig();
+    minListenSeconds = config.minListenSeconds;
+  } catch {
+    minListenSeconds = null;
+    configError = true;
+    setError('config_failed');
+  }
   pith.capture.onLevels(applyLevels);
   pith.capture.onDevice(applyDevice);
   await syncButtons();
+
   await withBusy(async () => {
     const preview = await pith.capture.preview();
     applyDevice({ inputName: preview.inputName, lost: !preview.inputName });
@@ -332,13 +416,17 @@ async function init(): Promise<void> {
         try {
           await pith.capture.pause();
         } catch (error) {
-          resumeTimer();
+          if (heardSound) {
+            resumeTimer();
+          }
           throw error;
         }
         return;
       }
       if (state === 'paused') {
-        resumeTimer();
+        if (heardSound) {
+          resumeTimer();
+        }
         try {
           await pith.capture.resume();
         } catch (error) {
@@ -348,15 +436,31 @@ async function init(): Promise<void> {
       }
     }),
   );
-  $('generate').addEventListener('click', () =>
-    withBusy(async () => {
-      pauseTimer();
+  $('generate').addEventListener('click', () => {
+    if (!listenedEnough()) {
+      return;
+    }
+    void withBusy(async () => {
       awaitingTranscript = true;
-      const result = await pith.capture.stop();
-      applyGeneratedText(result.text);
-      freezeTimer(result.durationSeconds);
-    }),
-  );
+      try {
+        const result = await pith.capture.stop();
+        captureFinished = true;
+        pauseTimer();
+        applyGeneratedText(result.text);
+        freezeTimer(recordedSeconds());
+        applyLevels({ mic: 0, system: 0 });
+      } catch (error) {
+        captureFinished = false;
+        const code = errorCode(error);
+        if (code === 'too_short' || code === 'empty') {
+          freezeTimer(recordedSeconds());
+        } else if (heardSound) {
+          resumeTimer();
+        }
+        throw error;
+      }
+    });
+  });
 }
 
 void init();

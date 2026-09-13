@@ -12,6 +12,8 @@ struct Outbound: Encodable {
   var error: String? = nil
   var systemAudioEnabled: Bool? = nil
   var filePath: String? = nil
+  var micFilePath: String? = nil
+  var systemFilePath: String? = nil
   var durationSeconds: Double? = nil
   var state: String? = nil
   var inputName: String? = nil
@@ -134,6 +136,8 @@ stdin.readabilityHandler = { handle in
               ok: true,
               systemAudioEnabled: result.systemAudioEnabled,
               filePath: result.url.path,
+              micFilePath: result.micURL?.path,
+              systemFilePath: result.systemURL?.path,
               durationSeconds: result.duration
             )
           )

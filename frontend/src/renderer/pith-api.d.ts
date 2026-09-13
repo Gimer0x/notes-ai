@@ -6,6 +6,7 @@ type CaptureDevice = { inputName: string; lost?: boolean };
 type PithApi = {
   getLocale: () => Promise<Locale>;
   getMessages: (locale: Locale) => Promise<Messages>;
+  getConfig: () => Promise<{ minListenSeconds: number }>;
   auth: {
     login: () => Promise<void>;
     logout: () => Promise<void>;

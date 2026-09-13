@@ -1,4 +1,4 @@
-import { splitWavBySeconds, wavDurationSeconds } from './split-wav';
+import { splitWavBySeconds, splitWavBySilence, analyzeWavSilence, wavDurationSeconds } from './split-wav';
 
 function pcmMono16k(sampleCount: number): Buffer {
   const dataSize = sampleCount * 2;
@@ -52,3 +52,30 @@ describe('splitWavBySeconds', () => {
     expect(splitWavBySeconds(buf, 10)).toEqual([buf]);
   });
 });
+
+describe('splitWavBySilence', () => {
+  it('keeps a continuous tone as one part', () => {
+    const wav = pcmMono16k(16000);
+    fillTone(wav, 0, 16000, 8000);
+    expect(splitWavBySilence(wav)).toHaveLength(1);
+  });
+
+  it('splits two bursts separated by a long silence', () => {
+    const wav = pcmMono16k(16000 * 5);
+    fillTone(wav, 0, 16000, 12000);
+    fillTone(wav, 16000 * 4, 16000, 12000);
+    const parts = splitWavBySilence(wav);
+    expect(parts).toHaveLength(2);
+    expect(wavDurationSeconds(parts[0])).toBeGreaterThan(0.9);
+    expect(wavDurationSeconds(parts[1])).toBeGreaterThan(0.9);
+    const analysis = analyzeWavSilence(wav);
+    expect(analysis.regions).toHaveLength(2);
+    expect(analysis.maxGapSec).toBeGreaterThan(0.7);
+  });
+});
+
+function fillTone(wav: Buffer, startSample: number, count: number, amplitude: number): void {
+  for (let i = 0; i < count; i += 1) {
+    wav.writeInt16LE(amplitude, 44 + (startSample + i) * 2);
+  }
+}

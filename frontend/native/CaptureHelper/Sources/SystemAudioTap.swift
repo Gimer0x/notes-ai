@@ -2,8 +2,9 @@ import AVFoundation
 import CoreAudio
 import Foundation
 
-/// Mix of every process's playback (YouTube, Netflix, Zoom, …) without capturing
-/// the screen. That is why DRM video can stay visible. Do not mute tapped apps.
+/// Mix of every process's playback (YouTube, Netflix, Meet, WhatsApp, …)
+/// without capturing the screen. Never bind this tap to an output device UID:
+/// that would steal the default output and mute apps.
 @available(macOS 14.2, *)
 final class SystemAudioTap {
   var onBuffer: ((AVAudioPCMBuffer) -> Void)?
@@ -14,50 +15,23 @@ final class SystemAudioTap {
   private var format: AVAudioFormat?
   private let ioQueue = DispatchQueue(label: "dev.pith.system-audio.io")
 
-  func start(outputUID: String? = nil) throws {
-    if outputUID != nil {
-      CaptureLog.line("system tap ignoring device UID; always global so playback is not interrupted")
-    }
-    try startOnce(outputUID: nil)
-  }
-
-  private func startOnce(outputUID: String?) throws {
+  func start() throws {
     let uuid = UUID()
     var excluded: [AudioObjectID] = []
     if let selfProcess = Self.audioProcessObject(for: getpid()) {
       excluded.append(selfProcess)
     }
 
-    let description: CATapDescription
-    if let outputUID, !outputUID.isEmpty {
-      description = CATapDescription(
-        excludingProcesses: excluded,
-        deviceUID: outputUID,
-        stream: 0
-      )
-      CaptureLog.line("system tap output=\(outputUID)")
-    } else {
-      description = CATapDescription(stereoGlobalTapButExcludeProcesses: excluded)
-      CaptureLog.line("system tap global")
-    }
+    let description = CATapDescription(stereoGlobalTapButExcludeProcesses: excluded)
     description.uuid = uuid
     description.name = "Pith System Audio"
     description.isPrivate = true
     description.muteBehavior = .unmuted
+    CaptureLog.line("system tap global")
 
     var tap = AudioObjectID(kAudioObjectUnknown)
-    var tapStatus = AudioHardwareCreateProcessTap(description, &tap)
+    let tapStatus = AudioHardwareCreateProcessTap(description, &tap)
     CaptureLog.line("system tap create status=\(tapStatus) id=\(tap)")
-    if tapStatus != noErr || tap == kAudioObjectUnknown, outputUID != nil {
-      CaptureLog.line("device tap failed status=\(tapStatus), using global tap")
-      let fallback = CATapDescription(stereoGlobalTapButExcludeProcesses: excluded)
-      fallback.uuid = uuid
-      fallback.name = "Pith System Audio"
-      fallback.isPrivate = true
-      fallback.muteBehavior = .unmuted
-      tapStatus = AudioHardwareCreateProcessTap(fallback, &tap)
-      CaptureLog.line("system tap global fallback status=\(tapStatus) id=\(tap)")
-    }
     guard tapStatus == noErr, tap != kAudioObjectUnknown else {
       throw Self.error("process_tap", tapStatus)
     }

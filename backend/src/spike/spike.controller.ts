@@ -13,7 +13,7 @@ import { memoryStorage } from 'multer';
 import type { Express } from 'express';
 import { readPublicAppConfig } from '../config/app-config';
 import { OpenAiTranscribeService } from '../transcribe/openai-transcribe.service';
-import { splitWavBySeconds } from '../transcribe/split-wav';
+import { splitWavBySeconds, splitWavBySilence, analyzeWavSilence } from '../transcribe/split-wav';
 import { SpikeKeyGuard } from './spike-key.guard';
 
 /** Spike-only ceiling. OpenAI is still 25 MB per part; we split at WAV_CHUNK_SECONDS. */
@@ -43,23 +43,44 @@ export class SpikeController {
     }
 
     const chunkSeconds = readPublicAppConfig(this.config).wavChunkSeconds;
-    const parts = splitWavBySeconds(file.buffer, chunkSeconds);
+    const analysis = analyzeWavSilence(file.buffer);
+    const silenceParts = splitWavBySilence(file.buffer);
+    const parts: Buffer[] = [];
     console.log(
-      `spike wav bytes=${file.buffer.length} parts=${parts.length} chunkSeconds=${chunkSeconds} name=${file.originalname} head=${file.buffer.subarray(0, 16).toString('hex')}`,
+      `spike wav name=${file.originalname} bytes=${file.buffer.length} chunkSeconds=${chunkSeconds} head=${file.buffer.subarray(0, 16).toString('hex')}`,
     );
+    console.log(`spike ${analysis.summary}`);
+    console.log(`spike silenceParts=${silenceParts.length}`);
 
     try {
-      const result = await this.transcribeService.transcribeBuffers(
-        parts,
-        file.originalname,
-      );
-      console.log(`spike transcript chars=${result.transcript.length}`);
-      return { text: result.transcript, language: result.language };
+      const texts: string[] = [];
+      let language: 'en' | 'es' = 'en';
+      for (const [index, part] of silenceParts.entries()) {
+        const chunks = splitWavBySeconds(part, chunkSeconds);
+        parts.push(...chunks);
+        const result = await this.transcribeService.transcribeBuffers(
+          chunks,
+          file.originalname,
+        );
+        if (result.transcript) {
+          texts.push(result.transcript);
+        }
+        language = result.language;
+        console.log(
+          `spike part=${file.originalname}#${index} chars=${result.transcript.length} preview=${result.transcript.replace(/\s+/g, ' ').trim().slice(0, 80)}`,
+        );
+      }
+      const transcript = texts.join('\n\n').trim();
+      console.log(`spike transcript chars=${transcript.length}`);
+      return { text: transcript, language };
     } finally {
       if (file.buffer) {
         file.buffer.fill(0);
       }
       for (const part of parts) {
+        part.fill(0);
+      }
+      for (const part of silenceParts) {
         part.fill(0);
       }
     }

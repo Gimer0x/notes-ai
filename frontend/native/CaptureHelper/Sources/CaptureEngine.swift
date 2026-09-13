@@ -50,6 +50,8 @@ private final class AsyncLock: @unchecked Sendable {
   }
 }
 
+/// Audio-only capture: AVAudioEngine mic + Core Audio process tap (system playback).
+/// Device switches never discard already-captured samples.
 final class CaptureEngine: NSObject, @unchecked Sendable {
   private let lock = NSLock()
   private var state: String = "idle"
@@ -62,18 +64,26 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
   private var systemConverterCache: [String: AVAudioConverter] = [:]
   private var micSamples: [Int16] = []
   private var systemSamples: [Int16] = []
-  private var lastTempURL: URL?
+  private var lastTempURLs: [URL] = []
   private var lastMicLevel = 0.0
   private var lastSystemLevel = 0.0
   private var lastMicBufferAt = Date.distantPast
   private var lastSystemBufferAt = Date.distantPast
+  private var lastMicSampleEnd: Date?
+  private var lastSystemSampleEnd: Date?
+  private var lastMicRebindAt = Date.distantPast
+  private var lastSystemRebindAt = Date.distantPast
+  private var consecutiveMicStale = 0
+  private var consecutiveSystemStale = 0
   private var levelsTimer: DispatchSourceTimer?
   private var recording = false
   private var lastInputUID = ""
   private var lastInputName = ""
+  private var lastInputBluetooth = false
   private var lastOutputUID = ""
   private var lastOutputSampleRate = 0.0
   private var lastOutputChannels: UInt32 = 0
+  private var lastOutputBluetooth = false
   private var ignoreConfigUntil = Date.distantPast
   private var reconnecting = false
   private var pendingReconnectReason: String?
@@ -84,6 +94,7 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
   private var lastHeartbeatAt = Date.distantPast
   private var lastMicFormat = ""
   private var lastSystemFormat = ""
+  private var micStartGeneration = 0
   private var cancelHardwareWatch: (() -> Void)?
   private var configObserver: NSObjectProtocol?
   private let reconnectQueue = DispatchQueue(label: "dev.pith.capture.reconnect")
@@ -107,17 +118,19 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
   }
 
   func preview() async throws -> (systemAudioEnabled: Bool, inputName: String) {
-    let session = withLock { state }
-    if session == "listening" || session == "paused" {
+    try await commandLock.withLock {
+      let session = withLock { state }
+      if session == "listening" || session == "paused" {
+        return withLock { (systemAudioEnabled, lastInputName) }
+      }
+      try await ensureInputs()
+      withLock {
+        recording = false
+        paused = false
+        state = "idle"
+      }
       return withLock { (systemAudioEnabled, lastInputName) }
     }
-    try await ensureInputs()
-    withLock {
-      recording = false
-      paused = false
-      state = "idle"
-    }
-    return withLock { (systemAudioEnabled, lastInputName) }
   }
 
   func start() async throws -> (systemAudioEnabled: Bool, inputName: String) {
@@ -127,11 +140,20 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
         return withLock { (systemAudioEnabled, lastInputName) }
       }
       try await ensureInputs()
-      resetBuffers()
+      let counts = withLock { (micSamples.count, systemSamples.count) }
+      if counts.0 + counts.1 > 0 {
+        CaptureLog.line("continue note mix; keeping mic=\(counts.0) system=\(counts.1)")
+      } else {
+        resetBuffers()
+        CaptureLog.line("new note mix")
+      }
       withLock {
         recording = true
         paused = false
         state = "listening"
+        let now = Date()
+        lastMicSampleEnd = now
+        lastSystemSampleEnd = now
       }
       return withLock { (systemAudioEnabled, lastInputName) }
     }
@@ -144,6 +166,8 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
       state = "paused"
       lastMicLevel = 0
       lastSystemLevel = 0
+      lastMicSampleEnd = nil
+      lastSystemSampleEnd = nil
     }
     onLevels?(0, 0)
   }
@@ -153,16 +177,31 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
       guard state == "paused" else { throw CaptureError.notPaused }
       paused = false
       state = "listening"
+      let now = Date()
+      lastMicSampleEnd = now
+      lastSystemSampleEnd = now
     }
   }
 
-  func stop() async throws -> (url: URL, duration: Double, systemAudioEnabled: Bool) {
+  func stop() async throws -> (
+    url: URL,
+    micURL: URL?,
+    systemURL: URL?,
+    duration: Double,
+    systemAudioEnabled: Bool
+  ) {
     try await commandLock.withLock {
       try await finishListening()
     }
   }
 
-  private func finishListening() async throws -> (url: URL, duration: Double, systemAudioEnabled: Bool) {
+  private func finishListening() async throws -> (
+    url: URL,
+    micURL: URL?,
+    systemURL: URL?,
+    duration: Double,
+    systemAudioEnabled: Bool
+  ) {
     let current = withLock { state }
     CaptureLog.line("stop requested state=\(current)")
     guard current == "listening" || current == "paused" else {
@@ -171,7 +210,10 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
 
     endRecording()
 
-    let snapshot = withLock { (micSamples, systemSamples, systemAudioEnabled) }
+    let snapshot = withLock { () -> ([Int16], [Int16], Bool) in
+      alignTracksLocked(to: Date())
+      return (micSamples, systemSamples, systemAudioEnabled)
+    }
 
     let mixed = AudioConvert.mix(snapshot.0, snapshot.1)
     let micPeak = snapshot.0.map { abs(Int32($0)) }.max() ?? 0
@@ -193,16 +235,32 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
       throw CaptureError.tooShort
     }
 
-    let url = FileManager.default.temporaryDirectory
-      .appendingPathComponent("pith-\(UUID().uuidString).wav")
-    try WavWriter.writeCanonical(samples: mixed, to: url)
+    logPcmStats(snapshot.0, label: "mic")
+    logPcmStats(snapshot.1, label: "system")
+    logPcmStats(mixed, label: "mix")
+    logEnergyTimeline(mic: snapshot.0, system: snapshot.1)
+
+    let stamp = UUID().uuidString
+    let dir = FileManager.default.temporaryDirectory
+    let mixURL = dir.appendingPathComponent("pith-\(stamp)-mix.wav")
+    let micURL = snapshot.0.isEmpty ? nil : dir.appendingPathComponent("pith-\(stamp)-mic.wav")
+    let systemURL = snapshot.1.isEmpty ? nil : dir.appendingPathComponent("pith-\(stamp)-sys.wav")
+    try WavWriter.writeCanonical(samples: mixed, to: mixURL)
+    if let micURL {
+      try WavWriter.writeCanonical(samples: snapshot.0, to: micURL)
+    }
+    if let systemURL {
+      try WavWriter.writeCanonical(samples: snapshot.1, to: systemURL)
+    }
     deleteLastTemp()
-    lastTempURL = url
+    lastTempURLs = [mixURL, micURL, systemURL].compactMap { $0 }
     resetBuffers()
     await teardownInputs()
     onLevels?(0, 0)
-    CaptureLog.line("capture stopped; hardware released")
-    return (url, duration, snapshot.2)
+    CaptureLog.line(
+      "capture stopped; hardware released mix=\(mixURL.lastPathComponent) mic=\(micURL?.lastPathComponent ?? "none") sys=\(systemURL?.lastPathComponent ?? "none")"
+    )
+    return (mixURL, micURL, systemURL, duration, snapshot.2)
   }
 
   func cancel() async {
@@ -257,8 +315,8 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
     startDeviceWatch()
   }
 
-  private func startMicrophone() throws {
-    let preferred = AudioDevices.preferredInput()
+  private func startMicrophone(device: AudioInputDevice? = nil) async throws {
+    let preferred = device ?? AudioDevices.preferredInput()
     guard let preferred, preferred.isUsableInput else {
       CaptureLog.line("mic start aborted; no usable input preferred=\(preferred?.summary ?? "none")")
       throw NSError(domain: "CaptureHelper", code: 2, userInfo: [
@@ -269,6 +327,33 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
     CaptureLog.line(
       "mic start preferred=\(preferred.summary) default=\(AudioDevices.defaultInput()?.summary ?? "none")"
     )
+    let generation = withLock { () -> Int in
+      micStartGeneration += 1
+      return micStartGeneration
+    }
+    try await withThrowingTaskGroup(of: Void.self) { group in
+      group.addTask { [weak self] in
+        try await Task.detached(priority: .userInitiated) { [weak self] in
+          guard let self else { return }
+          try self.startMicrophoneBlocking(preferred: preferred, generation: generation)
+        }.value
+      }
+      group.addTask {
+        try await Task.sleep(nanoseconds: 5_000_000_000)
+        CaptureLog.line("mic start timed out device=\(preferred.summary)")
+        throw NSError(domain: "CaptureHelper", code: 4, userInfo: [
+          NSLocalizedDescriptionKey: "mic_start_timeout",
+        ])
+      }
+      try await group.next()!
+      group.cancelAll()
+    }
+    if preferred.isBluetooth, withLock({ engine != nil && micStartGeneration == generation }) {
+      try await Task.sleep(nanoseconds: 400_000_000)
+    }
+  }
+
+  private func startMicrophoneBlocking(preferred: AudioInputDevice, generation: Int) throws {
     let audioEngine = AVAudioEngine()
     let input = audioEngine.inputNode
     do {
@@ -287,6 +372,11 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
         UInt32(MemoryLayout<AudioDeviceID>.size)
       )
       CaptureLog.line("mic pin device status=\(status) id=\(preferred.id) uid=\(preferred.uid)")
+      if status != noErr {
+        throw NSError(domain: "CaptureHelper", code: Int(status), userInfo: [
+          NSLocalizedDescriptionKey: "mic_pin \(status)",
+        ])
+      }
     } else {
       CaptureLog.line("mic pin skipped; no audioUnit")
     }
@@ -302,6 +392,12 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
         UInt32(MemoryLayout<AudioDeviceID>.size)
       )
       CaptureLog.line("mic pin after prepare status=\(status)")
+      if status != noErr {
+        audioEngine.stop()
+        throw NSError(domain: "CaptureHelper", code: Int(status), userInfo: [
+          NSLocalizedDescriptionKey: "mic_pin_prepare \(status)",
+        ])
+      }
     }
     do {
       try audioEngine.start()
@@ -316,10 +412,18 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
           NSLocalizedDescriptionKey: "mic_format",
         ])
       }
+      guard withLock({ micStartGeneration == generation }) else {
+        audioEngine.stop()
+        throw NSError(domain: "CaptureHelper", code: 4, userInfo: [
+          NSLocalizedDescriptionKey: "mic_start_timeout",
+        ])
+      }
       input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
         self?.append(buffer: buffer, system: false)
       }
       engine = audioEngine
+      lastMicRebindAt = Date()
+      lastMicBufferAt = Date()
       rememberInput(preferred)
     } catch {
       audioEngine.inputNode.removeTap(onBus: 0)
@@ -328,15 +432,64 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
     }
   }
 
-  private func startMicrophoneRetrying() async throws {
+  private func stopMicrophoneEngine() async {
+    guard let engine else { return }
+    withLock { micStartGeneration += 1 }
+    self.engine = nil
+    let toStop = engine
+    do {
+      try await withThrowingTaskGroup(of: Void.self) { group in
+        group.addTask {
+          await Task.detached(priority: .userInitiated) {
+            toStop.inputNode.removeTap(onBus: 0)
+            toStop.stop()
+            toStop.reset()
+          }.value
+        }
+        group.addTask {
+          try await Task.sleep(nanoseconds: 2_000_000_000)
+          throw NSError(domain: "CaptureHelper", code: 4, userInfo: [
+            NSLocalizedDescriptionKey: "mic_stop_timeout",
+          ])
+        }
+        try await group.next()!
+        group.cancelAll()
+      }
+    } catch {
+      CaptureLog.line("mic engine stop: \(error.localizedDescription)")
+    }
+  }
+
+  private func startMicrophoneRetrying(preferred: AudioInputDevice? = nil) async throws {
     var lastError: Error?
+    var failedUID = ""
     for attempt in 1...10 {
+      let live = AudioDevices.preferredInput()
+      let builtIn = AudioDevices.builtInInput()
+      let device: AudioInputDevice?
+      if attempt == 1 {
+        device = preferred ?? live
+      } else if let live, live.uid != failedUID {
+        device = live
+      } else if let builtIn, builtIn.uid != failedUID {
+        CaptureLog.line("mic fallback to built-in after \(failedUID) failed")
+        device = builtIn
+      } else {
+        device = live ?? builtIn
+      }
       do {
-        try startMicrophone()
+        try await startMicrophone(device: device)
         return
       } catch {
         lastError = error
-        CaptureLog.line("mic start attempt \(attempt) failed: \(error.localizedDescription)")
+        failedUID = device?.uid ?? failedUID
+        CaptureLog.line(
+          "mic start attempt \(attempt) failed: \(error.localizedDescription) tried=\(device?.summary ?? "none") live=\(live?.summary ?? "none")"
+        )
+        if error.localizedDescription.contains("mic_start_timeout") {
+          withLock { ignoreConfigUntil = Date().addingTimeInterval(3.0) }
+          throw error
+        }
         if let engine {
           engine.inputNode.removeTap(onBus: 0)
           engine.stop()
@@ -363,8 +516,11 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
       self?.append(buffer: buffer, system: true)
     }
     CaptureLog.line("system tap start output=\(output?.summary ?? "none") bindUID=global")
-    try tap.start(outputUID: nil)
+    try tap.start()
     processTap = tap
+    lastSystemRebindAt = Date()
+    lastSystemBufferAt = Date()
+    consecutiveSystemStale = 0
     CaptureLog.line("system audio process tap started output=\(output?.name ?? "")")
   }
 
@@ -388,23 +544,34 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
     guard !samples.isEmpty else { return }
     let level = AudioConvert.displayLevel(samples)
     let peak = samples.map { abs(Int32($0)) }.max() ?? 0
+    let now = Date()
     let count = withLock { () -> Int in
       if system {
         lastSystemLevel = level
-        lastSystemBufferAt = Date()
+        lastSystemBufferAt = now
         lastSystemFormat = format
         systemBufferCount += 1
+        consecutiveSystemStale = 0
         if snapshot.1 {
+          padToLocked(system: true, target: now)
           systemSamples.append(contentsOf: samples)
+          lastSystemSampleEnd = now.addingTimeInterval(
+            Double(samples.count) / Double(WavWriter.sampleRate)
+          )
         }
         return systemBufferCount
       }
       lastMicLevel = level
-      lastMicBufferAt = Date()
+      lastMicBufferAt = now
       lastMicFormat = format
       micBufferCount += 1
+      consecutiveMicStale = 0
       if snapshot.1 {
+        padToLocked(system: false, target: now)
         micSamples.append(contentsOf: samples)
+        lastMicSampleEnd = now.addingTimeInterval(
+          Double(samples.count) / Double(WavWriter.sampleRate)
+        )
       }
       return micBufferCount
     }
@@ -420,11 +587,7 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
     stopLevelsTimer()
     onLevels?(0, 0)
     stopProcessTap()
-    if let engine {
-      engine.inputNode.removeTap(onBus: 0)
-      engine.stop()
-    }
-    engine = nil
+    await stopMicrophoneEngine()
     micConverterCache.removeAll()
     systemConverterCache.removeAll()
     withLock { recording = false }
@@ -461,10 +624,6 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
       onLevels?(0, 0)
       return
     }
-    if snapshot.0 == "idle" {
-      onLevels?(0, 0)
-      return
-    }
     let now = Date()
     let mic = now.timeIntervalSince(snapshot.4) < 0.15 ? snapshot.2 : 0
     let system = now.timeIntervalSince(snapshot.5) < 0.15 ? snapshot.3 : 0
@@ -480,30 +639,101 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
     pollCounter += 1
     if pollCounter >= 20 {
       pollCounter = 0
-      pollDefaultInput()
+      pollDefaultRoute()
+      if snapshot.0 == "listening" || snapshot.0 == "idle" {
+        watchMicTap(now: now)
+        watchSystemTap(now: now)
+      }
     }
   }
 
-  private func pollDefaultInput() {
-    let next = AudioDevices.preferredInput()
-    let (uid, hasEngine, hasTap, busy) = withLock {
-      (lastInputUID, engine != nil, processTap != nil, reconnecting)
+  private func micTapLooksDead(now: Date) -> Bool {
+    now.timeIntervalSince(lastMicRebindAt) > 1.5
+      && now.timeIntervalSince(lastMicBufferAt) > 1.5
+  }
+
+  private func systemTapLooksDead(now: Date) -> Bool {
+    now.timeIntervalSince(lastSystemRebindAt) > 1.5
+      && now.timeIntervalSince(lastSystemBufferAt) > 1.5
+  }
+
+  private func watchMicTap(now: Date) {
+    let (busy, engineRunning, staleCount, dead) = withLock {
+      (reconnecting, engine != nil, consecutiveMicStale, micTapLooksDead(now: now))
     }
-    if busy {
+    if busy || !engineRunning || staleCount >= 4 || !dead {
+      return
+    }
+    CaptureLog.line("mic tap stale micAgoMs=\(Int(now.timeIntervalSince(lastMicBufferAt) * 1000))")
+    scheduleReconnect(reason: "mic_stale")
+  }
+
+  private func watchSystemTap(now: Date) {
+    let (busy, hasTap, staleCount, dead) = withLock {
+      (reconnecting, processTap != nil, consecutiveSystemStale, systemTapLooksDead(now: now))
+    }
+    if busy || !hasTap || staleCount >= 4 || !dead {
+      return
+    }
+    CaptureLog.line("system tap stale sysAgoMs=\(Int(now.timeIntervalSince(lastSystemBufferAt) * 1000))")
+    scheduleReconnect(reason: "system_stale")
+  }
+
+  private func pollDefaultRoute() {
+    let nextIn = AudioDevices.preferredInput()
+    let nextOut = AudioDevices.defaultOutput()
+    let (inUID, outUID, hasEngine, hasTap, busy, quiet) = withLock {
+      (
+        lastInputUID,
+        lastOutputUID,
+        engine != nil,
+        processTap != nil,
+        reconnecting,
+        Date() < ignoreConfigUntil
+      )
+    }
+    if busy || quiet {
       return
     }
     if !hasTap, Self.systemAudioSupported {
       scheduleReconnect(reason: "poll")
       return
     }
-    if next == nil {
-      if hasEngine || !uid.isEmpty {
+    if nextIn == nil {
+      if hasEngine || !inUID.isEmpty {
         scheduleReconnect(reason: "poll_none")
       }
       return
     }
-    if next?.uid != uid || !hasEngine {
+    if nextIn?.uid != inUID || nextOut?.uid != outUID || !hasEngine {
       scheduleReconnect(reason: "poll")
+    }
+  }
+
+  private func alignTracksLocked(to target: Date) {
+    padToLocked(system: false, target: target)
+    padToLocked(system: true, target: target)
+  }
+
+  private func padToLocked(system: Bool, target: Date) {
+    let last = system ? lastSystemSampleEnd : lastMicSampleEnd
+    guard let last else { return }
+    let hole = target.timeIntervalSince(last)
+    guard hole > 0.05 else { return }
+    let frames = Int((hole * Double(WavWriter.sampleRate)).rounded())
+    let maxFrames = Int(WavWriter.sampleRate) * 300
+    guard frames > 0, frames <= maxFrames else { return }
+    if system {
+      systemSamples.append(contentsOf: repeatElement(Int16(0), count: frames))
+      lastSystemSampleEnd = target
+    } else {
+      micSamples.append(contentsOf: repeatElement(Int16(0), count: frames))
+      lastMicSampleEnd = target
+    }
+    if hole >= 0.2 {
+      CaptureLog.line(
+        "pad \(system ? "system" : "mic") gapMs=\(Int(hole * 1000)) frames=\(frames)"
+      )
     }
   }
 
@@ -511,6 +741,10 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
     withLock {
       micSamples.removeAll(keepingCapacity: true)
       systemSamples.removeAll(keepingCapacity: true)
+      lastMicSampleEnd = nil
+      lastSystemSampleEnd = nil
+      micBufferCount = 0
+      systemBufferCount = 0
     }
   }
 
@@ -527,10 +761,72 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
   }
 
   private func deleteLastTemp() {
-    if let lastTempURL {
-      try? FileManager.default.removeItem(at: lastTempURL)
+    for url in lastTempURLs {
+      try? FileManager.default.removeItem(at: url)
     }
-    lastTempURL = nil
+    lastTempURLs = []
+  }
+
+  private func logPcmStats(_ samples: [Int16], label: String) {
+    let rate = Double(WavWriter.sampleRate)
+    let duration = Double(samples.count) / rate
+    let peak = samples.map { abs(Int32($0)) }.max() ?? 0
+    var sumSq = 0.0
+    var loudFrames = 0
+    var firstLoud: Double?
+    var lastLoud: Double?
+    let frame = max(1, WavWriter.sampleRate / 50)
+    var index = 0
+    while index < samples.count {
+      let end = min(index + frame, samples.count)
+      var frameSum = 0.0
+      for sampleIndex in index..<end {
+        let normalized = Double(samples[sampleIndex]) / 32768.0
+        frameSum += normalized * normalized
+        sumSq += normalized * normalized
+      }
+      let rms = sqrt(frameSum / Double(end - index))
+      if rms >= 0.01 {
+        loudFrames += 1
+        let started = Double(index) / rate
+        if firstLoud == nil {
+          firstLoud = started
+        }
+        lastLoud = Double(end) / rate
+      }
+      index = end
+    }
+    let rms = samples.isEmpty ? 0 : sqrt(sumSq / Double(samples.count))
+    CaptureLog.line(
+      "track \(label) samples=\(samples.count) sec=\(String(format: "%.2f", duration)) peak=\(peak) rms=\(String(format: "%.4f", rms)) loudFrames=\(loudFrames) firstLoud=\(firstLoud.map { String(format: "%.2f", $0) } ?? "none") lastLoud=\(lastLoud.map { String(format: "%.2f", $0) } ?? "none")"
+    )
+  }
+
+  private func logEnergyTimeline(mic: [Int16], system: [Int16]) {
+    let rate = WavWriter.sampleRate
+    let total = max(mic.count, system.count)
+    guard total > 0 else { return }
+    let windows = Int(ceil(Double(total) / Double(rate)))
+    var parts: [String] = []
+    for window in 0..<windows {
+      let start = window * rate
+      func peak(_ samples: [Int16]) -> Int {
+        guard start < samples.count else { return 0 }
+        let end = min(start + rate, samples.count)
+        var value = 0
+        for index in start..<end {
+          value = max(value, Int(abs(samples[index])))
+        }
+        return value
+      }
+      parts.append("t=\(window)s micP=\(peak(mic)) sysP=\(peak(system))")
+    }
+    var offset = 0
+    while offset < parts.count {
+      let end = min(offset + 8, parts.count)
+      CaptureLog.line("energy " + parts[offset..<end].joined(separator: " | "))
+      offset = end
+    }
   }
 
   // MARK: - Device change
@@ -549,7 +845,9 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
       ) { [weak self] notification in
         guard let self else { return }
         guard notification.object as AnyObject? === self.engine else { return }
-        if Date() < self.ignoreConfigUntil {
+        let now = Date()
+        let micDead = self.withLock { self.micTapLooksDead(now: now) }
+        if now < self.ignoreConfigUntil, !micDead {
           CaptureLog.line("engine_config ignored (rebind quiet period)")
           return
         }
@@ -586,7 +884,14 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
       Task { await self?.reconnectTaps(reason: reason) }
     }
     reconnectWork = work
-    reconnectQueue.asyncAfter(deadline: .now() + 0.4, execute: work)
+    let delay: TimeInterval
+    switch reason {
+    case "default_input", "default_output", "devices":
+      delay = 0.75
+    default:
+      delay = 0.4
+    }
+    reconnectQueue.asyncAfter(deadline: .now() + delay, execute: work)
   }
 
   private func reconnectTaps(reason: String) async {
@@ -611,8 +916,11 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
         self.reconnectWork = nil
         guard let again else { return }
         let inputSame = (AudioDevices.preferredInput()?.uid ?? "") == self.withLock({ self.lastInputUID })
-        if inputSame, again != "poll_none", self.processTap != nil {
-          CaptureLog.line("drop pending \(again); preferred input unchanged")
+        let outputSame = (AudioDevices.defaultOutput()?.uid ?? "") == self.withLock({ self.lastOutputUID })
+        let keepPending = again == "poll_none" || again == "mic_stale" || again == "system_stale"
+          || again == "devices" || again == "default_input" || again == "default_output"
+        if inputSame, outputSame, !keepPending, self.processTap != nil {
+          CaptureLog.line("drop pending \(again); route unchanged")
           return
         }
         self.enqueueReconnect(reason: again)
@@ -625,25 +933,69 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
   }
 
   private func applyReconnect(reason: String) async {
-    let session = withLock { state }
-    if session != "listening", session != "paused" {
+    let (session, hasHardware) = withLock {
+      (state, engine != nil || processTap != nil)
+    }
+    if session != "listening", session != "paused", !hasHardware {
       CaptureLog.line("skip reconnect reason=\(reason) state=\(session)")
       return
+    }
+
+    if reason == "devices" {
+      let sameRoute = withLock {
+        (AudioDevices.preferredInput()?.uid ?? "") == lastInputUID
+          && (AudioDevices.defaultOutput()?.uid ?? "") == lastOutputUID
+          && engine != nil
+          && processTap != nil
+          && !micTapLooksDead(now: Date())
+          && !systemTapLooksDead(now: Date())
+      }
+      if sameRoute {
+        CaptureLog.line("devices event; route unchanged")
+        return
+      }
+    }
+
+    let routeChange = reason == "default_input" || reason == "default_output" || reason == "devices"
+    if routeChange {
+      let liveIn = AudioDevices.preferredInput()?.uid ?? ""
+      let liveOut = AudioDevices.defaultOutput()?.uid ?? ""
+      let lastIn = withLock { lastInputUID }
+      let lastOut = withLock { lastOutputUID }
+      let leavingBluetooth = withLock { lastInputBluetooth || lastOutputBluetooth }
+      if liveIn != lastIn, engine != nil {
+        CaptureLog.line("release mic engine for input handover from \(lastIn) to \(liveIn)")
+        await stopMicrophoneEngine()
+      }
+      if liveOut != lastOut {
+        CaptureLog.line("release system tap for output handover from \(lastOut) to \(liveOut)")
+        stopProcessTap()
+        systemConverterCache.removeAll()
+      }
+      CaptureLog.line("wait for audio route to settle reason=\(reason)")
+      let settle: UInt64 = leavingBluetooth ? 1_200_000_000 : 800_000_000
+      try? await Task.sleep(nanoseconds: settle)
     }
 
     let defaultInput = AudioDevices.defaultInput()
     let nextInput = AudioDevices.preferredInput()
     let nextOutput = AudioDevices.defaultOutput()
+    let bluetoothMics = AudioDevices.bluetoothInputs()
     let previousName = withLock { lastInputName }
     let previousInputUID = withLock { lastInputUID }
+    let previousInputBluetooth = withLock { lastInputBluetooth }
     let previousOutputUID = withLock { lastOutputUID }
     let previousOutputRate = withLock { lastOutputSampleRate }
     let previousOutputChannels = withLock { lastOutputChannels }
+    let previousOutputBluetooth = withLock { lastOutputBluetooth }
     let inputChanged = (nextInput?.uid ?? "") != previousInputUID
     let outputChanged = (nextOutput?.uid ?? "") != previousOutputUID
       || abs((nextOutput?.sampleRate ?? 0) - previousOutputRate) > 1
       || (nextOutput?.channels ?? 0) != previousOutputChannels
     let engineRunning = engine != nil
+    let now = Date()
+    let systemDead = withLock { processTap == nil || systemTapLooksDead(now: now) }
+    let micDead = withLock { micTapLooksDead(now: now) }
 
     CaptureLog.line(
       "reconnect run reason=\(reason) inputChanged=\(inputChanged) outputChanged=\(outputChanged) engine=\(engineRunning)"
@@ -651,14 +1003,42 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
     CaptureLog.line("  defaultIn \(defaultInput?.summary ?? "none")")
     CaptureLog.line("  preferredIn \(nextInput?.summary ?? "none") lastIn=\(previousName) uid=\(previousInputUID)")
     CaptureLog.line("  defaultOut \(nextOutput?.summary ?? "none") lastOut=\(previousOutputUID)")
-
-    if outputChanged {
-      rememberOutput(nextOutput)
-      CaptureLog.line("output change reason=\(reason) new=\(nextOutput?.name ?? "") — keep global tap")
+    if !bluetoothMics.isEmpty {
+      CaptureLog.line("  bluetooth mics=\(bluetoothMics.map(\.name).joined(separator: ","))")
     }
 
-    if processTap == nil, Self.systemAudioSupported {
-      await rebindSystemAudio()
+    if !previousInputBluetooth, nextInput?.isBluetooth == true {
+      CaptureLog.line("bluetooth connected mic=\(nextInput?.summary ?? "none")")
+    } else if previousInputBluetooth, nextInput?.isBluetooth != true {
+      CaptureLog.line("bluetooth disconnected mic=\(nextInput?.summary ?? "none")")
+    }
+    if !previousOutputBluetooth, nextOutput?.isBluetooth == true {
+      CaptureLog.line("bluetooth connected output=\(nextOutput?.summary ?? "none")")
+    } else if previousOutputBluetooth, nextOutput?.isBluetooth != true {
+      CaptureLog.line("bluetooth disconnected output=\(nextOutput?.summary ?? "none")")
+    }
+
+    rememberOutput(nextOutput)
+
+    let recreateTap = outputChanged || processTap == nil || reason == "system_stale" || systemDead
+    if recreateTap, Self.systemAudioSupported {
+      if reason == "system_stale" {
+        withLock { consecutiveSystemStale += 1 }
+      }
+      if reason == "system_stale", withLock({ consecutiveSystemStale }) >= 4 {
+        CaptureLog.line("system tap stale backoff")
+      } else {
+        if outputChanged {
+          CaptureLog.line(
+            "output change new=\(nextOutput?.name ?? "") — recreate global tap after handover (never bind to the output device)"
+          )
+        } else if processTap == nil {
+          CaptureLog.line("system tap missing — recreate global tap")
+        } else {
+          CaptureLog.line("system tap dead — recreate global tap (buffers already kept)")
+        }
+        await rebindSystemAudio()
+      }
     }
 
     if let nextInput, !nextInput.isUsableInput {
@@ -666,9 +1046,20 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
       return
     }
 
-    if !inputChanged, engineRunning, reason != "poll_none" {
+    let forceMic = reason == "poll_none" || reason == "mic_stale" || micDead
+    if reason == "mic_stale", withLock({ consecutiveMicStale }) >= 4 {
+      CaptureLog.line("mic tap stale backoff")
+      return
+    }
+    if !inputChanged, engineRunning, !forceMic {
       CaptureLog.line("skip mic rebind; preferred uid unchanged (\(previousInputUID))")
       return
+    }
+
+    if reason == "mic_stale" {
+      withLock { consecutiveMicStale += 1 }
+    } else if inputChanged {
+      withLock { consecutiveMicStale = 0 }
     }
 
     CaptureLog.line(
@@ -680,11 +1071,9 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
       return
     }
 
-    rememberInput(nextInput)
-
     do {
-      try await rebindMicrophone()
-      CaptureLog.line("mic reconnect ok device=\(nextInput.name)")
+      try await rebindMicrophone(preferred: nextInput)
+      CaptureLog.line("mic reconnect ok device=\(currentInputName()) reason=\(reason)")
     } catch {
       CaptureLog.line("mic reconnect failed after retries: \(error.localizedDescription)")
       withLock {
@@ -694,48 +1083,56 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
     }
   }
 
-  private func rebindMicrophone() async throws {
+  private func rebindMicrophone(preferred: AudioInputDevice? = nil) async throws {
     ignoreConfigUntil = Date().addingTimeInterval(4.0)
     CaptureLog.line("mic rebind start")
-    if let engine {
-      engine.inputNode.removeTap(onBus: 0)
-      engine.stop()
-      engine.reset()
-    }
-    engine = nil
+    let wasBluetooth = withLock { lastInputBluetooth }
+    await stopMicrophoneEngine()
     micConverterCache.removeAll()
-    try await startMicrophoneRetrying()
+    if wasBluetooth {
+      CaptureLog.line("wait for bluetooth HFP to drop before starting the next mic")
+      try await Task.sleep(nanoseconds: 1_200_000_000)
+    }
+    try await startMicrophoneRetrying(preferred: preferred)
   }
 
   private func rebindSystemAudio() async {
     CaptureLog.line("system audio rebind start")
     stopProcessTap()
     systemConverterCache.removeAll()
-    systemBufferCount = 0
     guard Self.systemAudioSupported else { return }
-    do {
-      try await startSystemAudio()
-      withLock { systemAudioEnabled = processTap != nil }
-      CaptureLog.line("system audio reconnect ok tap=\(processTap != nil)")
-    } catch {
-      withLock { systemAudioEnabled = false }
-      CaptureLog.line("system audio reconnect failed: \(error.localizedDescription)")
+    var lastError: Error?
+    for attempt in 1...5 {
+      do {
+        try await startSystemAudio()
+        withLock { systemAudioEnabled = processTap != nil }
+        CaptureLog.line("system audio reconnect ok tap=\(processTap != nil) attempt=\(attempt)")
+        return
+      } catch {
+        lastError = error
+        stopProcessTap()
+        CaptureLog.line(
+          "system audio reconnect attempt \(attempt) failed: \(error.localizedDescription)"
+        )
+        try? await Task.sleep(nanoseconds: 300_000_000)
+      }
     }
+    withLock { systemAudioEnabled = false }
+    CaptureLog.line(
+      "system audio reconnect failed: \(lastError?.localizedDescription ?? "unknown")"
+    )
   }
 
   private func dropMicrophone(keepSystem: Bool) async {
     ignoreConfigUntil = Date().addingTimeInterval(0.6)
-    if let engine {
-      engine.inputNode.removeTap(onBus: 0)
-      engine.stop()
-    }
-    engine = nil
+    await stopMicrophoneEngine()
     micConverterCache.removeAll()
     withLock {
       lastMicLevel = 0
       lastMicBufferAt = Date.distantPast
       lastInputUID = ""
       lastInputName = ""
+      lastInputBluetooth = false
     }
     onDevice?("", true)
     if !keepSystem {
@@ -748,6 +1145,7 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
       lastOutputUID = device?.uid ?? ""
       lastOutputSampleRate = device?.sampleRate ?? 0
       lastOutputChannels = device?.channels ?? 0
+      lastOutputBluetooth = device?.isBluetooth ?? false
     }
   }
 
@@ -757,6 +1155,7 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
     withLock {
       lastInputName = name
       lastInputUID = uid
+      lastInputBluetooth = device?.isBluetooth ?? false
     }
     onDevice?(name, name.isEmpty)
   }

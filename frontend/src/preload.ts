@@ -16,6 +16,7 @@ type MePayload = {
 contextBridge.exposeInMainWorld('pith', {
   getLocale: (): Promise<'en' | 'es'> => ipcRenderer.invoke('i18n:locale'),
   getMessages: (locale: 'en' | 'es') => ipcRenderer.invoke('i18n:messages', locale),
+  getConfig: (): Promise<{ minListenSeconds: number }> => ipcRenderer.invoke('config:get'),
   auth: {
     login: (): Promise<void> => ipcRenderer.invoke('auth:login'),
     logout: (): Promise<void> => ipcRenderer.invoke('auth:logout'),

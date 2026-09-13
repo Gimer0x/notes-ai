@@ -30,7 +30,7 @@ Paid access is a real **Stripe Checkout** subscription (**$7.99/month** or **$87
 11. **USD only.** Do not add other currencies or localized prices in this MVP.
 12. Meeting languages: **English and Spanish only.** Detect the meeting language; write the bullet summary in that language. Do not add other languages.
 13. Do not implement organizations, team seats, or Windows installers beyond the preparation below.
-14. **Capture** is a dedicated desktop module in Electron **main** (Swift helper or native addon — not the renderer). **macOS 14.2+:** **AVAudioEngine** for the microphone, **Core Audio process tap** for system audio (global, all apps, no display capture — DRM video such as Netflix stays visible). Do not bind the tap to the output device or rebuild it when headphones change — that interrupts listening. **Do not use ScreenCaptureKit** (display capture blanks DRM video). Mix both to 16-bit PCM mono 16 kHz. Do **not** use AVCapture for the meeting or a virtual driver. Older OS → mic-only + warning.
+14. **Capture** is a dedicated desktop module in Electron **main** (Swift helper or native addon — not the renderer). **macOS 14.2+:** **AVAudioEngine** for the microphone, **Core Audio process tap** for system audio (global, all apps, no display capture — DRM video such as Netflix stays visible). Do **not** bind the tap to the output device UID (that steals default output and mutes YouTube/Netflix/Meet). When Bluetooth headphones connect or disconnect, **release** the running tap so playback can follow the new device, then recreate a **global** tap; keep already-captured samples and switch the mic to the new macOS default input. **Do not use ScreenCaptureKit** (display capture blanks DRM video). Mix both to 16-bit PCM mono 16 kHz. Do **not** use AVCapture for the meeting or a virtual driver. Older OS → mic-only + warning.
 
 ## Checkout strategy (locked)
 
@@ -433,7 +433,7 @@ Do not scatter these numbers in React, Swift, or Nest handlers. Audio sample rat
 
 **Do:** Show a compact **Granola-style** pill in the existing Electron debug window as soon as the window opens: a few vertical green bars driven by **live RMS** from the capture helper (not a looping CSS animation). Bars must reflect real signal from the microphone and/or system-audio tap. **Start** begins recording; before that the taps are preview-only (levels, no WAV).
 
-- Call `CaptureService.preview()` when the debug window loads so levels run without recording. Keep the pill visible while idle, recording, and paused. **Generate** / **Cancel** release the mic and system-audio tap (do not keep capturing in the background). The pill can stay visible at 0.
+- Call `CaptureService.preview()` when the debug window loads so levels run without recording. Keep the pill visible while idle, recording, and paused. **+ New note** starts recording immediately. **Generate** / **Cancel** / **Home** / **Move to trash** release the mic and system-audio tap (do not keep capturing in the background). The pill can stay visible at 0.
 - Stream levels from the helper → Electron main → renderer (`CaptureService.subscribeLevels`). `mic` and `system` are each `0..1`.
 - **If the microphone is not detected, missing, or silent:** the mic-driven bars **must not move**. Do not fake activity.
 - **If system audio is off, denied, or silent:** those bars stay still. Mic bars may still move if the mic has signal.

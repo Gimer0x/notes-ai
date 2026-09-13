@@ -90,11 +90,16 @@ enum AudioDevices {
     return inputs.first { $0.transport == kAudioDeviceTransportTypeBuiltIn }
   }
 
+  static func bluetoothInputs() -> [AudioInputDevice] {
+    devices(scope: kAudioDevicePropertyScopeInput).filter { $0.isBluetooth && $0.isUsableInput }
+  }
+
   static func observeDefaults(queue: DispatchQueue, onChange: @escaping (String) -> Void) -> () -> Void {
     let system = AudioObjectID(kAudioObjectSystemObject)
     let selectors = [
       kAudioHardwarePropertyDefaultInputDevice,
       kAudioHardwarePropertyDefaultOutputDevice,
+      kAudioHardwarePropertyDevices,
     ]
     var tokens: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
     for selector in selectors {

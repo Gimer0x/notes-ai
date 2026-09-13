@@ -12,7 +12,10 @@ export class SpikeClient {
     private readonly spikeKey: string,
   ) {}
 
-  async transcribe(wavPathOrBuffer: string | Buffer): Promise<TranscriptResult> {
+  async transcribe(
+    wavPathOrBuffer: string | Buffer,
+    filename = 'mix.wav',
+  ): Promise<TranscriptResult> {
     if (!this.spikeKey) {
       throw new Error('no_spike_key');
     }
@@ -29,7 +32,7 @@ export class SpikeClient {
 
     const form = new FormData();
     form.append('audio', bytes, {
-      filename: 'mix.wav',
+      filename,
       contentType: 'audio/wav',
       knownLength: bytes.length,
     });

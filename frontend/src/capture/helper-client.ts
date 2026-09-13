@@ -9,6 +9,8 @@ type HelperOk = {
   ok: true;
   systemAudioEnabled?: boolean;
   filePath?: string;
+  micFilePath?: string;
+  systemFilePath?: string;
   durationSeconds?: number;
   state?: string;
   inputName?: string;
@@ -100,11 +102,29 @@ export class HelperClient {
     this.startProcess();
     const id = String(this.nextId++);
     const line = JSON.stringify({ id, cmd }) + '\n';
+    const timeoutMs = cmd === 'stop' || cmd === 'cancel' ? 20_000 : 15_000;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        if (!this.pending.has(id)) {
+          return;
+        }
+        this.pending.delete(id);
+        reject(new Error('helper_timeout'));
+      }, timeoutMs);
+      this.pending.set(id, {
+        resolve: (msg) => {
+          clearTimeout(timer);
+          resolve(msg);
+        },
+        reject: (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      });
       this.child?.stdin.write(line, (err) => {
         if (err) {
           this.pending.delete(id);
+          clearTimeout(timer);
           reject(err);
         }
       });

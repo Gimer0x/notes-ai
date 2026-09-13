@@ -3,6 +3,8 @@ export type CaptureState = 'idle' | 'listening' | 'paused';
 export type CapturedAudio = {
   filePath: string;
   durationSeconds: number;
+  micFilePath?: string;
+  systemFilePath?: string;
 };
 
 export type CaptureLevels = {
