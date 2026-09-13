@@ -99,13 +99,9 @@ export class NativeCaptureService implements CaptureService {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
-      if (
-        message === 'not_listening' ||
-        message === 'empty' ||
-        message === 'too_short' ||
-        message === 'helper_exit' ||
-        message === 'helper_timeout'
-      ) {
+      if (message === 'empty' || message === 'too_short') {
+        this.state = 'idle';
+      } else if (message === 'helper_exit' || message === 'helper_timeout') {
         this.state = 'idle';
       }
       throw error;
