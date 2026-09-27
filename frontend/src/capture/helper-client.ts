@@ -55,6 +55,7 @@ export class HelperClient {
   private levelsListener: ((levels: CaptureLevels) => void) | null = null;
   private deviceListener: ((device: CaptureDevice, lost: boolean) => void) | null =
     null;
+  private stderrListener: ((chunk: string) => void) | null = null;
 
   onLevels(listener: ((levels: CaptureLevels) => void) | null): void {
     this.levelsListener = listener;
@@ -62,6 +63,10 @@ export class HelperClient {
 
   onDevice(listener: ((device: CaptureDevice, lost: boolean) => void) | null): void {
     this.deviceListener = listener;
+  }
+
+  onStderr(listener: ((chunk: string) => void) | null): void {
+    this.stderrListener = listener;
   }
 
   startProcess(): void {
@@ -91,6 +96,7 @@ export class HelperClient {
     });
     this.child.stderr.on('data', (chunk: string) => {
       process.stderr.write(chunk);
+      this.stderrListener?.(chunk);
     });
     this.child.on('exit', () => {
       this.failAll(new Error('helper_exit'));

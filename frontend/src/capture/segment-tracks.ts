@@ -77,6 +77,9 @@ function classifyWindow(micPeak: number, sysPeak: number): SegmentSource | 'sile
   if (micPeak < MIN_PEAK && sysPeak < MIN_PEAK) {
     return 'silence';
   }
+  if (micPeak >= MIN_PEAK && sysPeak >= MIN_PEAK) {
+    return 'mix';
+  }
   if (sysPeak >= MIN_PEAK && sysPeak >= micPeak * DOMINANT_RATIO) {
     return 'system';
   }

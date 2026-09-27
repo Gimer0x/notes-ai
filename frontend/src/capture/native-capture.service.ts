@@ -16,6 +16,10 @@ export class NativeCaptureService implements CaptureService {
   private lastDevice: CaptureDevice = { inputName: '' };
   private micLost = false;
 
+  subscribeHelperLog(listener: (chunk: string) => void): void {
+    this.helper.onStderr(listener);
+  }
+
   constructor() {
     this.helper.onLevels((levels) => {
       for (const listener of this.levelListeners) {

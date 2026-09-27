@@ -1,201 +1,213 @@
 import AVFoundation
 
+enum HostClock {
+  static func seconds(from earlier: UInt64, to later: UInt64) -> Double {
+    guard later > earlier else { return 0 }
+    var info = mach_timebase_info_data_t()
+    mach_timebase_info(&info)
+    let nanos = Double(later - earlier) * Double(info.numer) / Double(info.denom)
+    return nanos / 1_000_000_000
+  }
+}
+
 enum AudioConvert {
-  static let floatMono16k = AVAudioFormat(
+  private static let mono16k = AVAudioFormat(
     commonFormat: .pcmFormatFloat32,
     sampleRate: Double(WavWriter.sampleRate),
-    channels: AVAudioChannelCount(WavWriter.channels),
+    channels: 1,
     interleaved: false
   )!
 
+  /// Copy the callback buffer before it is reused. Runs on the audio thread.
+  static func copyMono(_ buffer: AVAudioPCMBuffer) -> (floats: [Float], sampleRate: Double)? {
+    guard let mono = mixdown(buffer), let source = mono.floatChannelData?[0] else { return nil }
+    let count = Int(mono.frameLength)
+    guard count > 0 else { return nil }
+    return (Array(UnsafeBufferPointer(start: source, count: count)), mono.format.sampleRate)
+  }
+
   static func int16Mono16k(
-    _ buffer: AVAudioPCMBuffer,
-    converterCache: inout [String: AVAudioConverter]
+    _ floats: [Float],
+    sampleRate: Double,
+    converter: inout AVAudioConverter?
   ) -> [Int16] {
-    guard buffer.format.sampleRate > 0, buffer.format.channelCount > 0, buffer.frameLength > 0 else {
-      return []
+    guard !floats.isEmpty, sampleRate > 0 else { return [] }
+    if abs(sampleRate - mono16k.sampleRate) < 1 {
+      return floats.map { Int16(max(-1, min(1, $0)) * Float(Int16.max)) }
     }
-    guard let mono = mixdownMonoKeepRate(buffer) else {
-      return []
+    guard let mono = buffer(floats, sampleRate: sampleRate) else {
+      return resampleLinear(floats, from: sampleRate, to: mono16k.sampleRate)
     }
-    if abs(mono.format.sampleRate - floatMono16k.sampleRate) < 1 {
-      return floatToInt16(mono)
+    if converter == nil || abs((converter?.inputFormat.sampleRate ?? 0) - sampleRate) > 1 {
+      converter = AVAudioConverter(from: mono.format, to: mono16k)
     }
-
-    let key = "sr=\(mono.format.sampleRate)"
-    let converter: AVAudioConverter
-    if let cached = converterCache[key] {
-      converter = cached
-    } else if let created = AVAudioConverter(from: mono.format, to: floatMono16k) {
-      converterCache[key] = created
-      converter = created
-    } else {
-      return []
+    guard let converter else {
+      return resampleLinear(floats, from: sampleRate, to: mono16k.sampleRate)
     }
-
-    converter.reset()
-
-    let ratio = floatMono16k.sampleRate / mono.format.sampleRate
-    let outFrames = AVAudioFrameCount((Double(mono.frameLength) * ratio).rounded(.up) + 32)
-    guard let output = AVAudioPCMBuffer(pcmFormat: floatMono16k, frameCapacity: outFrames) else {
-      return []
-    }
-
+    let frames = AVAudioFrameCount((Double(mono.frameLength) * mono16k.sampleRate / sampleRate).rounded(.up) + 64)
+    guard let output = AVAudioPCMBuffer(pcmFormat: mono16k, frameCapacity: frames) else { return [] }
     var error: NSError?
-    var consumed = false
-    converter.convert(to: output, error: &error) { _, outStatus in
-      if consumed {
-        outStatus.pointee = .endOfStream
+    var fed = false
+    let status = converter.convert(to: output, error: &error) { _, outStatus in
+      if fed {
+        outStatus.pointee = .noDataNow
         return nil
       }
-      consumed = true
+      fed = true
       outStatus.pointee = .haveData
       return mono
     }
-    if error != nil {
-      return []
+    if error != nil || status == .error {
+      converter.reset()
+      return resampleLinear(floats, from: sampleRate, to: mono16k.sampleRate)
     }
-    return floatToInt16(output)
+    // A streaming converter may keep the first frames as priming. That is not a failure.
+    if output.frameLength == 0 { return [] }
+    return int16(output)
   }
 
-  /// Average every channel so a 3-mic Mac array is not collapsed to a silent channel.
-  static func mixdownMonoKeepRate(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-    let frames = Int(buffer.frameLength)
-    let channels = Int(buffer.format.channelCount)
-    guard frames > 0, channels > 0 else { return nil }
-    guard let format = AVAudioFormat(
-      commonFormat: .pcmFormatFloat32,
-      sampleRate: buffer.format.sampleRate,
-      channels: 1,
-      interleaved: false
-    ),
-      let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
-      let dst = output.floatChannelData?[0]
-    else {
-      return nil
-    }
-    output.frameLength = AVAudioFrameCount(frames)
-    guard writeMonoFloat(from: buffer, into: dst, frames: frames, channels: channels) else {
-      return nil
-    }
-    return output
-  }
-
-  /// 0...1 RMS of Int16 PCM. Near-silence is 0 so the UI does not fake motion.
-  static func displayLevel(_ samples: [Int16]) -> Double {
+  static func level(_ samples: [Int16]) -> Double {
     guard !samples.isEmpty else { return 0 }
     var sum = 0.0
     for sample in samples {
-      let normalized = Double(sample) / 32768.0
-      sum += normalized * normalized
+      let value = Double(sample) / 32768
+      sum += value * value
     }
     let rms = sqrt(sum / Double(samples.count))
-    if rms < 0.004 {
-      return 0
-    }
+    if rms < 0.004 { return 0 }
     return min(1, (rms - 0.004) * 14)
   }
 
   static func mix(_ mic: [Int16], _ system: [Int16]) -> [Int16] {
     let count = max(mic.count, system.count)
     guard count > 0 else { return [] }
-    var mixed = [Int16](repeating: 0, count: count)
-    for index in 0..<count {
-      let a = index < mic.count ? Int32(mic[index]) : 0
-      let b = index < system.count ? Int32(system[index]) : 0
-      mixed[index] = Int16(clamping: a + b)
-    }
-    return mixed
-  }
-
-  private static func floatToInt16(_ buffer: AVAudioPCMBuffer) -> [Int16] {
-    let count = Int(buffer.frameLength)
-    guard count > 0, let floats = buffer.floatChannelData?[0] else {
-      return []
-    }
-    var samples = [Int16](repeating: 0, count: count)
-    for index in 0..<count {
-      let clipped = max(-1.0, min(1.0, floats[index]))
-      samples[index] = Int16(clipped * Float(Int16.max))
-    }
-    return samples
-  }
-
-  private static func writeMonoFloat(
-    from buffer: AVAudioPCMBuffer,
-    into dst: UnsafeMutablePointer<Float>,
-    frames: Int,
-    channels: Int
-  ) -> Bool {
-    let scale = 1.0 / Float(channels)
-    if let floats = buffer.floatChannelData {
-      if buffer.format.isInterleaved {
-        for frame in 0..<frames {
-          var sum: Float = 0
-          for channel in 0..<channels {
-            sum += floats[0][frame * channels + channel]
-          }
-          dst[frame] = sum * scale
-        }
-      } else {
-        for frame in 0..<frames {
-          var sum: Float = 0
-          for channel in 0..<channels {
-            sum += floats[channel][frame]
-          }
-          dst[frame] = sum * scale
-        }
+    return (0..<count).map { index in
+      let left = index < mic.count ? Int32(mic[index]) : 0
+      let right = index < system.count ? Int32(system[index]) : 0
+      let sum = left + right
+      if sum > 32767 || sum < -32768 {
+        return Int16(clamping: sum / 2)
       }
-      return true
+      return Int16(clamping: sum)
+    }
+  }
+
+  private static func mixdown(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+    let frames = Int(buffer.frameLength)
+    let channels = Int(buffer.format.channelCount)
+    guard frames > 0, channels > 0,
+          let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: buffer.format.sampleRate,
+            channels: 1,
+            interleaved: false
+          ),
+          let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
+          let destination = output.floatChannelData?[0]
+    else { return nil }
+    output.frameLength = AVAudioFrameCount(frames)
+    let scale = 1 / Float(channels)
+    if let floats = buffer.floatChannelData {
+      for frame in 0..<frames {
+        var sum: Float = 0
+        for channel in 0..<channels {
+          sum += buffer.format.isInterleaved
+            ? floats[0][frame * channels + channel]
+            : floats[channel][frame]
+        }
+        destination[frame] = sum * scale
+      }
+      return output
     }
     if let ints = buffer.int16ChannelData {
-      if buffer.format.isInterleaved {
-        for frame in 0..<frames {
-          var sum: Float = 0
-          for channel in 0..<channels {
-            sum += Float(ints[0][frame * channels + channel]) / 32768.0
-          }
-          dst[frame] = sum * scale
+      for frame in 0..<frames {
+        var sum: Float = 0
+        for channel in 0..<channels {
+          let sample = buffer.format.isInterleaved
+            ? ints[0][frame * channels + channel]
+            : ints[channel][frame]
+          sum += Float(sample) / 32768
         }
-      } else {
-        for frame in 0..<frames {
-          var sum: Float = 0
-          for channel in 0..<channels {
-            sum += Float(ints[channel][frame]) / 32768.0
-          }
-          dst[frame] = sum * scale
-        }
+        destination[frame] = sum * scale
       }
-      return true
+      return output
     }
+    return nil
+  }
 
-    let list = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
-    guard list.count > 0, let data = list[0].mData else {
-      return false
+  private static func buffer(_ floats: [Float], sampleRate: Double) -> AVAudioPCMBuffer? {
+    guard let format = AVAudioFormat(
+      commonFormat: .pcmFormatFloat32,
+      sampleRate: sampleRate,
+      channels: 1,
+      interleaved: false
+    ), let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(floats.count)),
+      let destination = output.floatChannelData?[0]
+    else { return nil }
+    output.frameLength = AVAudioFrameCount(floats.count)
+    floats.withUnsafeBufferPointer { source in
+      destination.update(from: source.baseAddress!, count: floats.count)
     }
-    let asbd = buffer.format.streamDescription.pointee
-    if asbd.mFormatFlags & kAudioFormatFlagIsFloat != 0 {
-      let src = data.assumingMemoryBound(to: Float.self)
-      for frame in 0..<frames {
-        var sum: Float = 0
-        for channel in 0..<channels {
-          sum += src[frame * channels + channel]
-        }
-        dst[frame] = sum * scale
-      }
-      return true
+    return output
+  }
+
+  private static func resampleLinear(
+    _ source: [Float],
+    from sourceRate: Double,
+    to targetRate: Double
+  ) -> [Int16] {
+    guard sourceRate > 0, targetRate > 0, !source.isEmpty else { return [] }
+    let targetFrames = max(1, Int((Double(source.count) * targetRate / sourceRate).rounded()))
+    let step = sourceRate / targetRate
+    return (0..<targetFrames).map { index in
+      let position = Double(index) * step
+      let left = min(Int(position), source.count - 1)
+      let right = min(left + 1, source.count - 1)
+      let fraction = Float(position - Double(left))
+      let value = source[left] * (1 - fraction) + source[right] * fraction
+      return Int16(max(-1, min(1, value)) * Float(Int16.max))
     }
-    if asbd.mBitsPerChannel == 16 {
-      let src = data.assumingMemoryBound(to: Int16.self)
-      for frame in 0..<frames {
-        var sum: Float = 0
-        for channel in 0..<channels {
-          sum += Float(src[frame * channels + channel]) / 32768.0
-        }
-        dst[frame] = sum * scale
-      }
-      return true
+  }
+
+  private static func int16(_ buffer: AVAudioPCMBuffer) -> [Int16] {
+    let count = Int(buffer.frameLength)
+    guard count > 0, let floats = buffer.floatChannelData?[0] else { return [] }
+    return (0..<count).map { index in
+      Int16(max(-1, min(1, floats[index])) * Float(Int16.max))
     }
-    return false
+  }
+}
+
+/// Bluetooth headset mics are quiet. Built-in and USB inputs are not boosted.
+final class HeadsetMicGain: @unchecked Sendable {
+  private let lock = NSLock()
+  private var gain = 1.0
+  private var logged = false
+
+  func reset() {
+    lock.lock()
+    gain = 1
+    logged = false
+    lock.unlock()
+  }
+
+  func process(_ samples: [Int16]) -> [Int16] {
+    guard !samples.isEmpty else { return samples }
+    let peak = samples.map { abs(Int32($0)) }.max() ?? 0
+    lock.lock()
+    var target = 1.0
+    if peak >= 48, peak < 10_000 {
+      target = min(16, 8_000 / Double(peak))
+    }
+    gain = target > gain ? (0.7 * gain + 0.3 * target) : (0.9 * gain + 0.1 * target)
+    let apply = gain
+    let shouldLog = !logged && apply > 1.2
+    if shouldLog { logged = true }
+    lock.unlock()
+    if shouldLog {
+      CaptureLog.line("headset mic gain=\(String(format: "%.1f", apply)) peak=\(peak)")
+    }
+    guard apply > 1.05 else { return samples }
+    return samples.map { Int16(clamping: Int32((Double($0) * apply).rounded())) }
   }
 }

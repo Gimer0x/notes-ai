@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Controller,
   HttpCode,
@@ -37,22 +38,29 @@ export class SpikeController {
   )
   async transcribe(
     @UploadedFile() file: Express.Multer.File | undefined,
-  ): Promise<{ text: string; language: 'en' | 'es' }> {
+  ): Promise<{ text: string; language: 'en' | 'es'; logs: string[] }> {
     if (!file?.buffer?.length) {
       throw new BadRequestException('audio file is required');
     }
+
+    const logs: string[] = [];
+    const write = console.log.bind(console);
+    console.log = (...args: unknown[]) => {
+      logs.push(args.map((arg) => (typeof arg === 'string' ? arg : JSON.stringify(arg))).join(' '));
+      write(...args);
+    };
 
     const chunkSeconds = readPublicAppConfig(this.config).wavChunkSeconds;
     const analysis = analyzeWavSilence(file.buffer);
     const silenceParts = splitWavBySilence(file.buffer);
     const parts: Buffer[] = [];
-    console.log(
-      `spike wav name=${file.originalname} bytes=${file.buffer.length} chunkSeconds=${chunkSeconds} head=${file.buffer.subarray(0, 16).toString('hex')}`,
-    );
-    console.log(`spike ${analysis.summary}`);
-    console.log(`spike silenceParts=${silenceParts.length}`);
-
     try {
+      console.log(
+        `spike wav name=${file.originalname} bytes=${file.buffer.length} chunkSeconds=${chunkSeconds} head=${file.buffer.subarray(0, 16).toString('hex')}`,
+      );
+      console.log(`spike ${analysis.summary}`);
+      console.log(`spike silenceParts=${silenceParts.length}`);
+
       const texts: string[] = [];
       let language: 'en' | 'es' = 'en';
       for (const [index, part] of silenceParts.entries()) {
@@ -72,8 +80,12 @@ export class SpikeController {
       }
       const transcript = texts.join('\n\n').trim();
       console.log(`spike transcript chars=${transcript.length}`);
-      return { text: transcript, language };
+      return { text: transcript, language, logs };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'transcribe_failed';
+      throw new BadGatewayException({ message, logs });
     } finally {
+      console.log = write;
       if (file.buffer) {
         file.buffer.fill(0);
       }

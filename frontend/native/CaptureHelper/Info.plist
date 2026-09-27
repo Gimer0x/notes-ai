@@ -25,7 +25,7 @@
   <key>NSMicrophoneUsageDescription</key>
   <string>Pith records your microphone so your voice is included in the meeting mix. It does not join the call as a bot.</string>
   <key>NSAudioCaptureUsageDescription</key>
-  <string>Pith records your microphone so your voice is included in the meeting mix. It does not join the call as a bot.</string>
+  <string>Pith records system audio from other apps for the meeting transcript. It does not record the screen or video.</string>
   <key>NSScreenCaptureUsageDescription</key>
   <string>Pith captures meeting sound from other apps (Zoom, Meet, Teams), not your screen or video.</string>
 </dict>

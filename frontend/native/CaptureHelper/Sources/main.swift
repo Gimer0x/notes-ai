@@ -34,7 +34,7 @@ struct DeviceEvent: Encodable {
 let nsApp = NSApplication.shared
 nsApp.setActivationPolicy(.accessory)
 
-let engine = CaptureEngine()
+let engine = CaptureSession()
 engine.onLevels = { mic, system in
   writeLevels(mic: mic, system: system)
 }

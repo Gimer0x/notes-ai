@@ -368,8 +368,6 @@ async function init(): Promise<void> {
   await syncButtons();
 
   await withBusy(async () => {
-    const preview = await pith.capture.preview();
-    applyDevice({ inputName: preview.inputName, lost: !preview.inputName });
     try {
       await startRecording();
     } catch (error) {
@@ -409,8 +407,12 @@ async function init(): Promise<void> {
       closeSpikeMenu();
     }
   });
-  $('listenToggle').addEventListener('click', () =>
-    withBusy(async () => {
+  $('listenToggle').addEventListener('click', () => {
+    const stopping = captureState === 'listening';
+    if (stopping) {
+      pauseTimer();
+    }
+    void withBusy(async () => {
       const state = await pith.capture.getState();
       if (state === 'listening') {
         pauseTimer();
@@ -424,6 +426,9 @@ async function init(): Promise<void> {
         }
         return;
       }
+      if (stopping) {
+        return;
+      }
       if (state === 'paused') {
         if (heardSound) {
           resumeTimer();
@@ -435,29 +440,24 @@ async function init(): Promise<void> {
           throw error;
         }
       }
-    }),
-  );
+    });
+  });
   $('generate').addEventListener('click', () => {
     if (!listenedEnough()) {
       return;
     }
+    pauseTimer();
     void withBusy(async () => {
       awaitingTranscript = true;
       try {
         const result = await pith.capture.stop();
         captureFinished = true;
-        pauseTimer();
         applyGeneratedText(result.text);
         freezeTimer(recordedSeconds());
         applyLevels({ mic: 0, system: 0 });
       } catch (error) {
         captureFinished = false;
-        const code = errorCode(error);
-        if (code === 'too_short' || code === 'empty') {
-          freezeTimer(recordedSeconds());
-        } else if (heardSound) {
-          resumeTimer();
-        }
+        freezeTimer(recordedSeconds());
         throw error;
       }
     });

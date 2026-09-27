@@ -5,6 +5,7 @@ out/
 *.log
 .DS_Store
 debug-audio/
+frontend/debug-logs/
 *.wav
 coverage/
 .idea/

@@ -6,13 +6,15 @@ import type { CaptureDevice, CaptureLevels } from './capture/capture.service';
 import { segmentTracks } from './capture/segment-tracks';
 import { NativeCaptureService } from './capture/native-capture.service';
 import { backendUrl, captureSpikeKey, loadFrontendEnv, websiteUrl } from './env';
-import { SpikeClient } from './spike/spike-client';
+import { resetSessionTrace, trace, writeSessionTrace, type TraceSegment } from './debug/session-trace';
+import { SpikeClient, SpikeRequestError } from './spike/spike-client';
 import en from './i18n/en.json';
 import es from './i18n/es.json';
 
 loadFrontendEnv();
 
 const capture = new NativeCaptureService();
+capture.subscribeHelperLog((chunk) => trace('helper', chunk));
 const spike = new SpikeClient(backendUrl(), captureSpikeKey());
 const auth = new AuthService();
 let lastMix: Buffer | null = null;
@@ -31,6 +33,13 @@ function beginNote(): void {
   lastMix = null;
   lastMic = null;
   lastSystem = null;
+  resetSessionTrace();
+}
+
+function logFrontend(line: string): void {
+  const text = line.endsWith('\n') ? line : `${line}\n`;
+  process.stderr.write(text);
+  trace('frontend', text);
 }
 
 let lastLoggedMinListen: number | undefined;
@@ -47,7 +56,7 @@ async function loadAppConfig(): Promise<{ minListenSeconds: number }> {
   }
   if (lastLoggedMinListen !== minListenSeconds) {
     lastLoggedMinListen = minListenSeconds;
-    process.stderr.write(`config minListenSeconds=${minListenSeconds}\n`);
+    logFrontend(`config minListenSeconds=${minListenSeconds}`);
   }
   return { minListenSeconds };
 }
@@ -60,10 +69,10 @@ async function transcribeNote(files: {
   mix: Buffer;
   mic: Buffer | null;
   system: Buffer | null;
-}): Promise<{ text: string; language: 'en' | 'es' }> {
+}): Promise<{ text: string; language: 'en' | 'es'; segments: TraceSegment[]; logs: string[] }> {
   const started = Date.now();
   const segments = segmentTracks(files.mic, files.system, files.mix);
-  process.stderr.write(`spike segments=${segments.length}\n`);
+  logFrontend(`spike segments=${segments.length}`);
   const toSend =
     segments.length > 0
       ? segments
@@ -78,24 +87,49 @@ async function transcribeNote(files: {
         ];
 
   const texts: string[] = [];
+  const noted: TraceSegment[] = [];
+  const logs: string[] = [];
   let language: 'en' | 'es' = 'en';
-  for (const [index, segment] of toSend.entries()) {
-    process.stderr.write(
-      `spike segment ${index} ${segment.startSec.toFixed(2)}-${segment.endSec.toFixed(2)}s source=${segment.source} peak=${segment.peak} bytes=${segment.wav.length}\n`,
-    );
-    const result = await spike.transcribe(segment.wav, `${segment.source}-${index}.wav`);
-    process.stderr.write(
-      `spike segment ${index} lang=${result.language} chars=${result.text.length} preview=${previewText(result.text)}\n`,
-    );
-    if (result.text.trim()) {
-      texts.push(result.text.trim());
-      language = result.language;
+  try {
+    for (const [index, segment] of toSend.entries()) {
+      const row: TraceSegment = {
+        index,
+        startSec: segment.startSec,
+        endSec: segment.endSec,
+        source: segment.source,
+        peak: segment.peak,
+        bytes: segment.wav.length,
+      };
+      logFrontend(
+        `spike segment ${index} ${segment.startSec.toFixed(2)}-${segment.endSec.toFixed(2)}s source=${segment.source} peak=${segment.peak} bytes=${segment.wav.length}`,
+      );
+      const result = await spike.transcribe(segment.wav, `${segment.source}-${index}.wav`);
+      logs.push(...result.logs);
+      const preview = previewText(result.text);
+      row.language = result.language;
+      row.chars = result.text.length;
+      row.preview = preview;
+      noted.push(row);
+      logFrontend(
+        `spike segment ${index} lang=${result.language} chars=${result.text.length} preview=${preview}`,
+      );
+      if (result.text.trim()) {
+        texts.push(result.text.trim());
+        language = result.language;
+      }
     }
+  } catch (error) {
+    if (error instanceof SpikeRequestError) {
+      logs.push(...error.logs);
+    }
+    const failed = error instanceof Error ? error : new Error('transcribe_failed');
+    Object.assign(failed, { segments: noted, logs });
+    throw failed;
   }
-  process.stderr.write(
-    `spike done segments=${toSend.length} chars=${texts.join('\n\n').length} ms=${Date.now() - started}\n`,
+  logFrontend(
+    `spike done segments=${toSend.length} chars=${texts.join('\n\n').length} ms=${Date.now() - started}`,
   );
-  return { text: texts.join('\n\n').trim(), language };
+  return { text: texts.join('\n\n').trim(), language, segments: noted, logs };
 }
 
 function rendererFile(name: string): string {
@@ -219,36 +253,107 @@ ipcMain.handle('debug:stopAndTranscribe', async () => {
     await unlink(captured.systemFilePath).catch(() => undefined);
   }
   const durationSeconds = Number(captured.durationSeconds);
-  process.stderr.write(
-    `spike files mix=${mix.length}B mic=${mic?.length ?? 0}B sys=${system?.length ?? 0}B duration=${Number.isFinite(durationSeconds) ? durationSeconds.toFixed(2) : 'invalid'}s\n`,
+  logFrontend(
+    `spike files mix=${mix.length}B mic=${mic?.length ?? 0}B sys=${system?.length ?? 0}B duration=${Number.isFinite(durationSeconds) ? durationSeconds.toFixed(2) : 'invalid'}s`,
   );
   const { minListenSeconds } = await loadAppConfig();
   if (!Number.isFinite(durationSeconds) || durationSeconds < minListenSeconds) {
-    process.stderr.write(
-      `spike too_short duration=${Number.isFinite(durationSeconds) ? durationSeconds.toFixed(2) : 'invalid'}s min=${minListenSeconds}\n`,
+    logFrontend(
+      `spike too_short duration=${Number.isFinite(durationSeconds) ? durationSeconds.toFixed(2) : 'invalid'}s min=${minListenSeconds}`,
     );
     lastMix = null;
     lastMic = null;
     lastSystem = null;
+    await saveDebugLog({
+      durationSeconds,
+      segments: [],
+      backendLogs: [],
+      error: 'too_short',
+    });
     throw new Error('too_short');
   }
   lastMix = mix;
   lastMic = mic;
   lastSystem = system;
-  const transcript = await transcribeNote({ mix, mic, system });
-  return {
-    ...transcript,
-    durationSeconds: captured.durationSeconds,
-    systemAudioEnabled: lastSystemAudioEnabled,
-  };
+  logFrontend('capture stopped; transcribing');
+  try {
+    const transcript = await transcribeNote({ mix, mic, system });
+    await saveDebugLog({
+      durationSeconds,
+      segments: transcript.segments,
+      backendLogs: transcript.logs,
+    });
+    return {
+      text: transcript.text,
+      language: transcript.language,
+      durationSeconds: captured.durationSeconds,
+      systemAudioEnabled: lastSystemAudioEnabled,
+    };
+  } catch (error) {
+    const failed = traceFailure(error);
+    await saveDebugLog({
+      durationSeconds,
+      segments: failed.segments,
+      backendLogs: failed.logs,
+      error: failed.message,
+    });
+    throw error;
+  }
 });
 ipcMain.handle('debug:hasLastMix', () => Boolean(lastMix && lastMix.length > 0));
 ipcMain.handle('debug:resend', async () => {
   if (!lastMix || lastMix.length === 0) {
     throw new Error('no_last_mix');
   }
-  return transcribeNote({ mix: lastMix, mic: lastMic, system: lastSystem });
+  try {
+    const transcript = await transcribeNote({ mix: lastMix, mic: lastMic, system: lastSystem });
+    await saveDebugLog({
+      segments: transcript.segments,
+      backendLogs: transcript.logs,
+    });
+    return { text: transcript.text, language: transcript.language };
+  } catch (error) {
+    const failed = traceFailure(error);
+    await saveDebugLog({
+      segments: failed.segments,
+      backendLogs: failed.logs,
+      error: failed.message,
+    });
+    throw error;
+  }
 });
+
+async function saveDebugLog(details: {
+  durationSeconds?: number;
+  segments: TraceSegment[];
+  backendLogs: string[];
+  error?: string;
+}): Promise<void> {
+  try {
+    const file = await writeSessionTrace({
+      inputName: lastInputName,
+      systemAudioEnabled: lastSystemAudioEnabled,
+      durationSeconds: details.durationSeconds,
+      segments: details.segments,
+      backendLogs: details.backendLogs,
+      error: details.error,
+    });
+    logFrontend(`debug log ${file}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'debug_log_failed';
+    logFrontend(`debug log failed ${message}`);
+  }
+}
+
+function traceFailure(error: unknown): { message: string; segments: TraceSegment[]; logs: string[] } {
+  const message = error instanceof Error ? error.message : 'transcribe_failed';
+  const extra = error as { segments?: TraceSegment[]; logs?: string[] };
+  return {
+    message,
+    segments: Array.isArray(extra.segments) ? extra.segments : [],
+    logs: Array.isArray(extra.logs) ? extra.logs : [],
+  };
+}
 
 app.whenReady().then(async () => {
   if (process.platform === 'darwin') {
