@@ -320,10 +320,26 @@ button.auth-link svg {
   flex: 1;
 }
 
-.note-when {
+.note-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   margin: 0 0 8px;
+}
+
+.note-meta:not(:has(:not([hidden]))) {
+  display: none;
+}
+
+.note-when {
+  margin: 0;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.note-meta .text-btn {
+  margin: 0 0 0 auto;
 }
 
 .content > .error {

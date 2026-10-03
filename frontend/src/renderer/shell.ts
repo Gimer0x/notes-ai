@@ -769,9 +769,8 @@ function renderNote(workspaceId: string, noteId: string): void {
   const hasTranscript = note.transcriptTurns.length > 0 || Boolean(note.transcriptText?.trim());
   $('view').innerHTML = `
     <div class="detail">
-      <span class="status-pill ${note.status}">${statusLabel(note.status)}</span>
+      ${note.status === 'ready' ? '' : `<span class="status-pill ${note.status}">${statusLabel(note.status)}</span>`}
       ${lines.length ? `<ol>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ol>` : `<p class="empty">${t.noSummaryYet}</p>`}
-      ${hasTranscript ? `<button type="button" class="text-btn" id="showTranscript"></button>` : ''}
       <div class="detail-actions">
         <label for="moveNote">${t.moveNote}</label>
         <select id="moveNote">${options}</select>
@@ -779,14 +778,13 @@ function renderNote(workspaceId: string, noteId: string): void {
       </div>
     </div>
   `;
-  const showTranscript = document.getElementById('showTranscript');
-  if (showTranscript) {
-    showTranscript.textContent = t.showTranscript;
-    showTranscript.addEventListener('click', () => {
-      view = { name: 'transcript', workspaceId: note.workspaceId, noteId: note.id };
-      render();
-    });
-  }
+  const showTranscript = $('showTranscript') as HTMLButtonElement;
+  showTranscript.hidden = !hasTranscript;
+  showTranscript.textContent = t.showTranscript;
+  showTranscript.onclick = () => {
+    view = { name: 'transcript', workspaceId: note.workspaceId, noteId: note.id };
+    render();
+  };
   const retry = document.getElementById('retryNote');
   if (retry) {
     retry.textContent = t.retry;
@@ -855,16 +853,16 @@ function renderTranscript(workspaceId: string, noteId: string): void {
   }
   $('view').innerHTML = `
     <div class="transcript-screen">
-      <button type="button" class="text-btn" id="backToSummary"></button>
       <div class="chat">${rows.join('')}</div>
     </div>
   `;
-  const back = document.getElementById('backToSummary') as HTMLButtonElement;
+  const back = $('showTranscript') as HTMLButtonElement;
+  back.hidden = false;
   back.textContent = t.backToSummary;
-  back.addEventListener('click', () => {
+  back.onclick = () => {
     view = { name: 'note', workspaceId, noteId };
     render();
-  });
+  };
 }
 
 function renderListen(workspaceId: string, noteId: string): void {
@@ -1013,10 +1011,14 @@ function showNoteWhen(): void {
   if (!note) {
     slot.hidden = true;
     slot.textContent = '';
+    $('showTranscript').hidden = true;
     return;
   }
   slot.hidden = false;
   slot.textContent = formatNoteDateTime(note);
+  if (view.name !== 'note') {
+    $('showTranscript').hidden = true;
+  }
 }
 
 function render(): void {
