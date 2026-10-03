@@ -307,18 +307,25 @@ button.auth-link svg {
 }
 
 .content {
-  padding: 24px;
+  padding: 8px 24px 24px;
   overflow: auto;
   flex: 1;
 }
 
-.banner {
-  background: var(--wash);
-  color: var(--ink);
-  border-radius: 12px;
-  padding: 10px 14px;
+.note-when {
+  margin: 0 0 8px;
+  color: var(--muted);
   font-size: 0.9rem;
-  margin: 0 0 20px;
+}
+
+.content > .error {
+  margin: 0;
+  min-height: 0;
+}
+
+.content > .error:not(:empty) {
+  min-height: 1.2em;
+  margin-bottom: 8px;
 }
 
 .notes {
@@ -340,7 +347,7 @@ button.auth-link svg {
 }
 
 .note-day {
-  margin: 20px 0 8px;
+  margin: 12px 0 4px;
   font-size: 0.8rem;
   color: var(--muted);
 }
@@ -643,6 +650,67 @@ button.auth-link svg {
 
 .detail ol {
   line-height: 1.5;
+}
+
+button.text-btn {
+  width: auto;
+  margin: 4px 0 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+button.text-btn:hover:not(:disabled) {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink);
+}
+
+.transcript-screen {
+  max-width: 640px;
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.turn-time {
+  margin: 8px 0 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.bubble {
+  max-width: 78%;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 16px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.bubble.system {
+  align-self: flex-start;
+  background: #f3efe8;
+  color: var(--ink);
+}
+
+.bubble.mic {
+  align-self: flex-end;
+  background: #3a342f;
+  color: #faf7f1;
+}
+
+.bubble.mix {
+  align-self: center;
+  background: #efe6d8;
+  color: var(--ink);
 }
 
 .detail-actions {

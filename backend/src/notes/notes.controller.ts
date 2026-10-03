@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUserId } from '../auth/current-user';
-import type { NoteResponse } from './note.types';
+import type { NoteResponse, TranscriptTurn } from './note.types';
 import { NotesService } from './notes.service';
 
 @Controller()
@@ -82,7 +82,13 @@ export class NotesController {
   stop(
     @CurrentUserId() userId: string,
     @Param('id') noteId: string,
-    @Body() body: { durationSeconds?: number; transcriptText?: string | null; language?: string | null },
+    @Body()
+    body: {
+      durationSeconds?: number;
+      transcriptText?: string | null;
+      language?: string | null;
+      turns?: TranscriptTurn[] | null;
+    },
   ): Promise<NoteResponse> {
     const language = body.language === 'en' || body.language === 'es' ? body.language : null;
     return this.notes.stop(
@@ -91,6 +97,7 @@ export class NotesController {
       Number(body.durationSeconds),
       body.transcriptText,
       language,
+      body.turns,
     );
   }
 

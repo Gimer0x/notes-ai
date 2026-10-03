@@ -7,6 +7,13 @@ export type WorkspaceRecord = {
   updatedAt: string;
 };
 
+export type TranscriptTurn = {
+  source: 'mic' | 'system' | 'mix';
+  startSec: number;
+  endSec: number;
+  text: string;
+};
+
 export type NoteRecord = {
   id: string;
   workspaceId: string;
@@ -14,6 +21,7 @@ export type NoteRecord = {
   status: 'listening' | 'paused' | 'processing' | 'ready' | 'failed';
   summaryText: string[];
   transcriptText: string | null;
+  transcriptTurns: TranscriptTurn[];
   language: 'en' | 'es' | null;
   errorCode: 'upload' | 'stt' | 'gpt' | null;
   errorMessage: string | null;
@@ -71,11 +79,13 @@ export class NotesApi {
     durationSeconds: number,
     transcriptText?: string | null,
     language?: 'en' | 'es' | null,
+    turns?: TranscriptTurn[] | null,
   ): Promise<NoteRecord> {
     return this.request('POST', `/notes/${id}/stop`, {
       durationSeconds,
       transcriptText: transcriptText ?? null,
       language: language ?? null,
+      turns: turns ?? null,
     });
   }
 

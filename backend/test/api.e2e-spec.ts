@@ -279,6 +279,18 @@ describe('API contracts (e2e)', () => {
       .post(`/notes/${noteId}/retry`)
       .set('Authorization', `Bearer ${token}`)
       .expect(409);
+    await db.query(
+      `UPDATE notes
+       SET status = 'failed', transcript_text = 'Saved speech', error_code = 'gpt'
+       WHERE id = $1`,
+      [noteId],
+    );
+    const retried = await http
+      .post(`/notes/${noteId}/retry`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(retried.body.status).toBe('ready');
+    expect(retried.body.summaryText).toEqual(['Saved speech']);
     await db.query(`UPDATE notes SET status = 'listening' WHERE id = $1`, [noteId]);
     const stopped = await http
       .post(`/notes/${noteId}/stop`)
@@ -293,6 +305,7 @@ describe('API contracts (e2e)', () => {
     expect(stopped.body.durationSeconds).toBe(42);
     expect(stopped.body.transcriptText).toBe('Hello there');
     expect(stopped.body.language).toBe('en');
+    expect(stopped.body.summaryText).toEqual(['Hello there']);
 
     await http
       .delete(`/notes/${noteId}`)

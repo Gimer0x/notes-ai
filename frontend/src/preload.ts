@@ -72,7 +72,13 @@ contextBridge.exposeInMainWorld('pith', {
       durationSeconds: number,
       transcriptText?: string | null,
       language?: 'en' | 'es' | null,
-    ) => ipcRenderer.invoke('notes:stop', id, durationSeconds, transcriptText, language),
+      turns?: {
+        source: 'mic' | 'system' | 'mix';
+        startSec: number;
+        endSec: number;
+        text: string;
+      }[] | null,
+    ) => ipcRenderer.invoke('notes:stop', id, durationSeconds, transcriptText, language, turns),
     retry: (id: string) => ipcRenderer.invoke('notes:retry', id),
   },
   shell: {

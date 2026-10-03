@@ -205,7 +205,7 @@ Resolve the active window from plan rules above (free 30-day slices vs Stripe mo
 
 Implement **in this order**. Each step must compile, use `.env`, follow SOLID, update `README.md`, and **add or extend automated tests when the step introduces new behavior** (API, quota rules, i18n keys). Run the full suite (`npm test` from the repo root) before treating the step as done. Do not start step N+1 until step N works.
 
-**Status:** Steps 1–11, **12a**, and **12b** are implemented. Automated tests (Step 11) run locally and on GitHub push/PR. Next is **Step 13** (WAV upload, transcript, and summary).
+**Status:** Steps 1–12b are implemented. **Step 13** saves the meeting summary and a separate transcript view. Generate still uses the existing capture and spike transcribe path. Pause discard uses `GET /config`. Next is **Step 14** (macOS installer and website download).
 
 ### Module boundaries
 

@@ -14,6 +14,13 @@ type Workspace = {
   createdAt: string;
   updatedAt: string;
 };
+type TranscriptTurn = {
+  source: 'mic' | 'system' | 'mix';
+  startSec: number;
+  endSec: number;
+  text: string;
+};
+
 type Note = {
   id: string;
   workspaceId: string;
@@ -21,6 +28,7 @@ type Note = {
   status: NoteStatus;
   summaryText: string[];
   transcriptText: string | null;
+  transcriptTurns: TranscriptTurn[];
   language: 'en' | 'es' | null;
   errorCode: 'upload' | 'stt' | 'gpt' | null;
   errorMessage: string | null;
@@ -36,6 +44,7 @@ type View =
   | { name: 'profile' }
   | { name: 'workspace'; id: string }
   | { name: 'note'; workspaceId: string; noteId: string }
+  | { name: 'transcript'; workspaceId: string; noteId: string }
   | { name: 'listen'; workspaceId: string; noteId: string };
 
 type PendingDialog =
@@ -162,6 +171,17 @@ function formatNoteTime(note: Note): string {
   return noteWhen(note).toLocaleTimeString(dateLocale(), { timeStyle: 'short' });
 }
 
+function formatNoteDateTime(note: Note): string {
+  const when = noteWhen(note);
+  const date = when.toLocaleDateString(dateLocale(), {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  return `${date} · ${formatNoteTime(note)}`;
+}
+
 function noteIcon(): HTMLElement {
   const wrap = document.createElement('span');
   wrap.className = 'note-icon';
@@ -212,7 +232,7 @@ function recordingWorkspace(): Workspace | null {
   if (current.name === 'workspace') {
     return workspaces.find((item) => item.id === current.id) ?? null;
   }
-  if (current.name === 'note' || current.name === 'listen') {
+  if (current.name === 'note' || current.name === 'listen' || current.name === 'transcript') {
     return workspaces.find((item) => item.id === current.workspaceId) ?? null;
   }
   return workspaces[0] ?? null;
@@ -674,14 +694,13 @@ function renderNote(workspaceId: string, noteId: string): void {
         `<option value="${escapeHtml(workspace.id)}" ${workspace.id === note.workspaceId ? 'selected' : ''}>${escapeHtml(workspace.name)}</option>`,
     )
     .join('');
-  const transcript = note.transcriptText?.trim() ?? '';
+  const hasTranscript = note.transcriptTurns.length > 0 || Boolean(note.transcriptText?.trim());
   $('view').innerHTML = `
     <div class="detail">
-      <label class="title-label" for="noteTitle">${t.noteTitleLabel}</label>
       <input id="noteTitle" class="title-field" maxlength="120" />
       <span class="status-pill ${note.status}">${statusLabel(note.status)}</span>
       ${lines.length ? `<ol>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ol>` : `<p class="empty">${t.noSummaryYet}</p>`}
-      ${transcript ? `<p class="hint transcript">${escapeHtml(transcript)}</p>` : ''}
+      ${hasTranscript ? `<button type="button" class="text-btn" id="showTranscript"></button>` : ''}
       <div class="detail-actions">
         <label for="moveNote">${t.moveNote}</label>
         <select id="moveNote">${options}</select>
@@ -689,8 +708,17 @@ function renderNote(workspaceId: string, noteId: string): void {
       </div>
     </div>
   `;
+  const showTranscript = document.getElementById('showTranscript');
+  if (showTranscript) {
+    showTranscript.textContent = t.showTranscript;
+    showTranscript.addEventListener('click', () => {
+      view = { name: 'transcript', workspaceId: note.workspaceId, noteId: note.id };
+      render();
+    });
+  }
   const titleInput = document.getElementById('noteTitle') as HTMLInputElement;
   titleInput.placeholder = t.noteTitlePlaceholder;
+  titleInput.setAttribute('aria-label', t.noteTitleLabel);
   titleInput.value = note.title ?? '';
   titleInput.addEventListener('change', () => {
     const next = titleInput.value.trim();
@@ -726,6 +754,59 @@ function renderNote(workspaceId: string, noteId: string): void {
       });
     },
   );
+}
+
+function transcriptTurns(note: Note): TranscriptTurn[] {
+  if (note.transcriptTurns.length > 0) {
+    return note.transcriptTurns;
+  }
+  const text = note.transcriptText?.trim() ?? '';
+  if (!text) {
+    return [];
+  }
+  return [{ source: 'mix', startSec: 0, endSec: note.durationSeconds ?? 0, text }];
+}
+
+function formatTurnTime(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(whole / 60);
+  const remain = whole % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(remain).padStart(2, '0')}`;
+}
+
+function renderTranscript(workspaceId: string, noteId: string): void {
+  const note = notes.find((item) => item.id === noteId);
+  if (!note) {
+    view = { name: 'workspace', id: workspaceId };
+    render();
+    return;
+  }
+  $('mainTitle').textContent = noteTitle(note);
+  const turns = transcriptTurns(note);
+  const rows: string[] = [];
+  let previousEnd = -1;
+  for (const turn of turns) {
+    const gap = previousEnd < 0 || turn.startSec - previousEnd >= 20;
+    if (gap) {
+      rows.push(`<p class="turn-time">${formatTurnTime(turn.startSec)}</p>`);
+    }
+    rows.push(
+      `<p class="bubble ${turn.source}">${escapeHtml(turn.text)}</p>`,
+    );
+    previousEnd = turn.endSec;
+  }
+  $('view').innerHTML = `
+    <div class="transcript-screen">
+      <button type="button" class="text-btn" id="backToSummary"></button>
+      <div class="chat">${rows.join('')}</div>
+    </div>
+  `;
+  const back = document.getElementById('backToSummary') as HTMLButtonElement;
+  back.textContent = t.backToSummary;
+  back.addEventListener('click', () => {
+    view = { name: 'note', workspaceId, noteId };
+    render();
+  });
 }
 
 function renderListen(workspaceId: string, noteId: string): void {
@@ -866,8 +947,23 @@ function requestDeleteWorkspace(id: string): void {
   showDialog(t.confirmDeleteWorkspace, t.confirmDeleteWorkspaceBody, t.deletePermanently);
 }
 
+function showNoteWhen(): void {
+  const slot = $('noteWhen');
+  const noteId =
+    view.name === 'note' || view.name === 'transcript' ? view.noteId : null;
+  const note = noteId ? notes.find((item) => item.id === noteId) : undefined;
+  if (!note) {
+    slot.hidden = true;
+    slot.textContent = '';
+    return;
+  }
+  slot.hidden = false;
+  slot.textContent = formatNoteDateTime(note);
+}
+
 function render(): void {
   setMainError('');
+  showNoteWhen();
   syncNewNote();
   $('homeBtn').classList.toggle('active', view.name === 'home');
   $('profileBtn').classList.toggle('active', view.name === 'profile');
@@ -880,6 +976,8 @@ function render(): void {
     renderWorkspace(view.id);
   } else if (view.name === 'note') {
     renderNote(view.workspaceId, view.noteId);
+  } else if (view.name === 'transcript') {
+    renderTranscript(view.workspaceId, view.noteId);
   } else {
     renderListen(view.workspaceId, view.noteId);
   }
@@ -898,7 +996,6 @@ function applyCopy(): void {
   $('openSpikeLabel').textContent = t.newNote;
   $('signInLabel').textContent = t.signIn;
   $('signOutLabel').textContent = t.signOut;
-  $('mockBanner').textContent = t.mockBanner;
   render();
 }
 

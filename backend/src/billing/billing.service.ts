@@ -94,6 +94,39 @@ export class BillingService {
     return { allowed: true };
   }
 
+  async recordListen(userId: string, durationSeconds: number): Promise<void> {
+    const userResult = await this.db.query<UserRow>(
+      `SELECT
+         id,
+         google_subject,
+         email,
+         display_name,
+         plan_code,
+         created_at,
+         stripe_customer_id,
+         stripe_price_id,
+         subscription_period_start,
+         subscription_period_end
+       FROM users
+       WHERE id = $1`,
+      [userId],
+    );
+    const user = userResult.rows[0];
+    if (!user) {
+      throw new Error('user not found');
+    }
+    const window = currentWindow(user);
+    await this.ensureWindow(userId, window.start, window.end);
+    const seconds = Math.max(0, Math.round(durationSeconds));
+    await this.db.query(
+      `UPDATE usage_windows
+       SET listening_seconds_used = listening_seconds_used + $3,
+           notes_counted = notes_counted + 1
+       WHERE user_id = $1 AND period_start = $2`,
+      [userId, window.start.toISOString(), seconds],
+    );
+  }
+
   private async intervalFor(user: UserRow): Promise<'month' | 'year' | null> {
     if (user.plan_code !== 'paid') {
       return null;

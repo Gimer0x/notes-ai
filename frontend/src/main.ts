@@ -47,21 +47,48 @@ function logFrontend(line: string): void {
 
 let lastLoggedMinListen: number | undefined;
 
-async function loadAppConfig(): Promise<{ minListenSeconds: number }> {
+async function loadAppConfig(): Promise<{
+  minListenSeconds: number;
+  pauseAutoCancelSeconds: number;
+  pauseWarningSeconds: number;
+  uploadRetrySeconds: number;
+  wavChunkSeconds: number;
+}> {
   const response = await fetch(`${backendUrl().replace(/\/$/, '')}/config`);
   if (!response.ok) {
     throw new Error('config_failed');
   }
-  const body = (await response.json()) as { minListenSeconds?: number };
+  const body = (await response.json()) as {
+    minListenSeconds?: number;
+    pauseAutoCancelSeconds?: number;
+    pauseWarningSeconds?: number;
+    uploadRetrySeconds?: number;
+    wavChunkSeconds?: number;
+  };
   const minListenSeconds = Number(body.minListenSeconds);
-  if (!Number.isFinite(minListenSeconds) || minListenSeconds <= 0) {
+  const pauseAutoCancelSeconds = Number(body.pauseAutoCancelSeconds);
+  const pauseWarningSeconds = Number(body.pauseWarningSeconds);
+  const uploadRetrySeconds = Number(body.uploadRetrySeconds);
+  const wavChunkSeconds = Number(body.wavChunkSeconds);
+  if (
+    !Number.isFinite(minListenSeconds) ||
+    minListenSeconds <= 0 ||
+    !Number.isFinite(pauseAutoCancelSeconds) ||
+    pauseAutoCancelSeconds <= 0
+  ) {
     throw new Error('config_failed');
   }
   if (lastLoggedMinListen !== minListenSeconds) {
     lastLoggedMinListen = minListenSeconds;
     logFrontend(`config minListenSeconds=${minListenSeconds}`);
   }
-  return { minListenSeconds };
+  return {
+    minListenSeconds,
+    pauseAutoCancelSeconds,
+    pauseWarningSeconds: Number.isFinite(pauseWarningSeconds) ? pauseWarningSeconds : 0,
+    uploadRetrySeconds: Number.isFinite(uploadRetrySeconds) ? uploadRetrySeconds : 0,
+    wavChunkSeconds: Number.isFinite(wavChunkSeconds) ? wavChunkSeconds : 0,
+  };
 }
 
 function previewText(text: string): string {
@@ -72,7 +99,13 @@ async function transcribeNote(files: {
   mix: Buffer;
   mic: Buffer | null;
   system: Buffer | null;
-}): Promise<{ text: string; language: 'en' | 'es'; segments: TraceSegment[]; logs: string[] }> {
+}): Promise<{
+  text: string;
+  language: 'en' | 'es';
+  segments: TraceSegment[];
+  logs: string[];
+  turns: { source: 'mic' | 'system' | 'mix'; startSec: number; endSec: number; text: string }[];
+}> {
   const started = Date.now();
   const segments = segmentTracks(files.mic, files.system, files.mix);
   logFrontend(`spike segments=${segments.length}`);
@@ -91,6 +124,8 @@ async function transcribeNote(files: {
 
   const texts: string[] = [];
   const noted: TraceSegment[] = [];
+  const turns: { source: 'mic' | 'system' | 'mix'; startSec: number; endSec: number; text: string }[] =
+    [];
   const logs: string[] = [];
   let language: 'en' | 'es' = 'en';
   try {
@@ -117,7 +152,15 @@ async function transcribeNote(files: {
         `spike segment ${index} lang=${result.language} chars=${result.text.length} preview=${preview}`,
       );
       if (result.text.trim()) {
-        texts.push(result.text.trim());
+        const spoken = result.text.trim();
+        texts.push(spoken);
+        const source = segment.source === 'mic' || segment.source === 'system' ? segment.source : 'mix';
+        turns.push({
+          source,
+          startSec: segment.startSec,
+          endSec: segment.endSec,
+          text: spoken,
+        });
         language = result.language;
       }
     }
@@ -132,7 +175,7 @@ async function transcribeNote(files: {
   logFrontend(
     `spike done segments=${toSend.length} chars=${texts.join('\n\n').length} ms=${Date.now() - started}`,
   );
-  return { text: texts.join('\n\n').trim(), language, segments: noted, logs };
+  return { text: texts.join('\n\n').trim(), language, segments: noted, logs, turns };
 }
 
 function rendererFile(name: string): string {
@@ -300,7 +343,13 @@ ipcMain.handle(
     durationSeconds: number,
     transcriptText?: string | null,
     language?: 'en' | 'es' | null,
-  ) => notesApi.stopNote(id, durationSeconds, transcriptText, language),
+    turns?: {
+      source: 'mic' | 'system' | 'mix';
+      startSec: number;
+      endSec: number;
+      text: string;
+    }[] | null,
+  ) => notesApi.stopNote(id, durationSeconds, transcriptText, language, turns),
 );
 ipcMain.handle('notes:retry', (_event, id: string) => notesApi.retryNote(id));
 ipcMain.handle('capture:getState', () => capture.getState());
@@ -354,6 +403,7 @@ ipcMain.handle('debug:stopAndTranscribe', async () => {
       language: transcript.language,
       durationSeconds: captured.durationSeconds,
       systemAudioEnabled: lastSystemAudioEnabled,
+      turns: transcript.turns,
     };
   } catch (error) {
     const failed = traceFailure(error);

@@ -8,6 +8,12 @@ type WorkspaceRecord = {
   createdAt: string;
   updatedAt: string;
 };
+type TranscriptTurn = {
+  source: 'mic' | 'system' | 'mix';
+  startSec: number;
+  endSec: number;
+  text: string;
+};
 type NoteRecord = {
   id: string;
   workspaceId: string;
@@ -15,6 +21,7 @@ type NoteRecord = {
   status: 'listening' | 'paused' | 'processing' | 'ready' | 'failed';
   summaryText: string[];
   transcriptText: string | null;
+  transcriptTurns: TranscriptTurn[];
   language: 'en' | 'es' | null;
   errorCode: 'upload' | 'stt' | 'gpt' | null;
   errorMessage: string | null;
@@ -28,7 +35,13 @@ type NoteRecord = {
 type PithApi = {
   getLocale: () => Promise<Locale>;
   getMessages: (locale: Locale) => Promise<Messages>;
-  getConfig: () => Promise<{ minListenSeconds: number }>;
+  getConfig: () => Promise<{
+    minListenSeconds: number;
+    pauseAutoCancelSeconds: number;
+    pauseWarningSeconds: number;
+    uploadRetrySeconds: number;
+    wavChunkSeconds: number;
+  }>;
   auth: {
     login: () => Promise<void>;
     logout: () => Promise<void>;
@@ -53,6 +66,7 @@ type PithApi = {
       language: Locale;
       durationSeconds: number;
       systemAudioEnabled: boolean;
+      turns: TranscriptTurn[];
     }>;
     cancel: () => Promise<void>;
     end: () => Promise<{ durationSeconds: number }>;
@@ -80,6 +94,7 @@ type PithApi = {
       durationSeconds: number,
       transcriptText?: string | null,
       language?: 'en' | 'es' | null,
+      turns?: TranscriptTurn[] | null,
     ) => Promise<NoteRecord>;
     retry: (id: string) => Promise<NoteRecord>;
   };

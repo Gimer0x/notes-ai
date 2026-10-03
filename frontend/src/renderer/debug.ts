@@ -8,6 +8,10 @@ let lastDefaultTitle = '';
 let captureFinished = false;
 let heardSound = false;
 let minListenSeconds: number | null = null;
+let pauseAutoCancelSeconds: number | null = null;
+let pauseWarningSeconds: number | null = null;
+let pauseWarnTimer: number | null = null;
+let pauseCancelTimer: number | null = null;
 let captureState: 'idle' | 'listening' | 'paused' = 'idle';
 let waitingForMicrophone = false;
 
@@ -62,11 +66,41 @@ function showWorkspaceName(): void {
   label.hidden = name.length === 0;
 }
 
-async function saveGeneratedNote(result: {
-  text: string;
-  language: Locale;
-  durationSeconds: number;
-}): Promise<void> {
+function clearPauseLimit(): void {
+  if (pauseWarnTimer != null) {
+    window.clearTimeout(pauseWarnTimer);
+    pauseWarnTimer = null;
+  }
+  if (pauseCancelTimer != null) {
+    window.clearTimeout(pauseCancelTimer);
+    pauseCancelTimer = null;
+  }
+}
+
+function armPauseLimit(): void {
+  clearPauseLimit();
+  if (pauseAutoCancelSeconds == null || pauseAutoCancelSeconds <= 0) {
+    return;
+  }
+  const warning = pauseWarningSeconds ?? 0;
+  const warnIn = Math.max(0, pauseAutoCancelSeconds - warning) * 1000;
+  pauseWarnTimer = window.setTimeout(() => {
+    $('error').textContent = t.pauseWarning;
+  }, warnIn);
+  pauseCancelTimer = window.setTimeout(() => {
+    void moveToTrash();
+  }, pauseAutoCancelSeconds * 1000);
+}
+
+async function saveGeneratedNote(
+  result: {
+    text: string;
+    language: Locale;
+    durationSeconds: number;
+    turns: { source: 'mic' | 'system' | 'mix'; startSec: number; endSec: number; text: string }[];
+  },
+  typedNotes: string,
+): Promise<void> {
   let workspaceId = recordingWorkspace().id;
   if (!workspaceId) {
     const listed = await pith.notes.listWorkspaces();
@@ -76,9 +110,16 @@ async function saveGeneratedNote(result: {
     throw new Error('notes_workspace');
   }
   const title = (document.getElementById('noteTitle') as HTMLInputElement).value.trim();
+  const transcript = [typedNotes.trim(), result.text.trim()].filter((part) => part.length > 0).join('\n\n');
   const created = await pith.notes.create(workspaceId, title || null);
   try {
-    await pith.notes.stop(created.id, result.durationSeconds, noteBody().value.trim(), result.language);
+    await pith.notes.stop(
+      created.id,
+      result.durationSeconds,
+      transcript,
+      result.language,
+      result.turns,
+    );
   } catch (error) {
     await pith.notes.cancel(created.id).catch(() => undefined);
     throw error;
@@ -101,6 +142,7 @@ function closeSpikeMenu(): void {
 }
 
 async function moveToTrash(): Promise<void> {
+  clearPauseLimit();
   closeSpikeMenu();
   const state = await pith.capture.getState();
   if (state === 'listening' || state === 'paused') {
@@ -262,6 +304,8 @@ async function ensureMinListenConfig(): Promise<void> {
   try {
     const config = await pith.getConfig();
     minListenSeconds = config.minListenSeconds;
+    pauseAutoCancelSeconds = config.pauseAutoCancelSeconds;
+    pauseWarningSeconds = config.pauseWarningSeconds;
     if (configError) {
       configError = false;
       if ($('error').textContent === t.errorConfig) {
@@ -441,6 +485,8 @@ async function init(): Promise<void> {
   try {
     const config = await pith.getConfig();
     minListenSeconds = config.minListenSeconds;
+    pauseAutoCancelSeconds = config.pauseAutoCancelSeconds;
+    pauseWarningSeconds = config.pauseWarningSeconds;
   } catch {
     minListenSeconds = null;
     configError = true;
@@ -501,6 +547,7 @@ async function init(): Promise<void> {
         pauseTimer();
         try {
           await pith.capture.pause();
+          armPauseLimit();
         } catch (error) {
           if (heardSound) {
             resumeTimer();
@@ -517,9 +564,11 @@ async function init(): Promise<void> {
           resumeTimer();
         }
         try {
+          clearPauseLimit();
           await pith.capture.resume();
         } catch (error) {
           pauseTimer();
+          armPauseLimit();
           throw error;
         }
       }
@@ -530,15 +579,17 @@ async function init(): Promise<void> {
       return;
     }
     pauseTimer();
+    clearPauseLimit();
     void withBusy(async () => {
       awaitingTranscript = true;
+      const typedNotes = noteBody().value.trim();
       try {
         const result = await pith.capture.stop();
         captureFinished = true;
         applyGeneratedText(result.text);
         freezeTimer(recordedSeconds());
         applyLevels({ mic: 0, system: 0 });
-        await saveGeneratedNote(result);
+        await saveGeneratedNote(result, typedNotes);
       } catch (error) {
         if (!captureFinished) {
           freezeTimer(recordedSeconds());

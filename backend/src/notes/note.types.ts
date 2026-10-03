@@ -2,6 +2,13 @@ export type NoteStatus = 'listening' | 'paused' | 'processing' | 'ready' | 'fail
 
 export type NoteErrorCode = 'upload' | 'stt' | 'gpt';
 
+export type TranscriptTurn = {
+  source: 'mic' | 'system' | 'mix';
+  startSec: number;
+  endSec: number;
+  text: string;
+};
+
 export type WorkspaceResponse = {
   id: string;
   name: string;
@@ -16,6 +23,7 @@ export type NoteResponse = {
   status: NoteStatus;
   summaryText: string[];
   transcriptText: string | null;
+  transcriptTurns: TranscriptTurn[];
   language: 'en' | 'es' | null;
   errorCode: NoteErrorCode | null;
   errorMessage: string | null;
@@ -40,6 +48,7 @@ export type NoteRow = {
   status: NoteStatus;
   summary_text: string | null;
   transcript_text: string | null;
+  transcript_turns: string | null;
   language: 'en' | 'es' | null;
   error_code: NoteErrorCode | null;
   error_message: string | null;
@@ -67,6 +76,7 @@ export function toNote(row: NoteRow): NoteResponse {
     status: row.status,
     summaryText: splitSummary(row.summary_text),
     transcriptText: row.transcript_text,
+    transcriptTurns: parseTurns(row.transcript_turns),
     language: row.language,
     errorCode: row.error_code,
     errorMessage: row.error_message,
@@ -76,6 +86,41 @@ export function toNote(row: NoteRow): NoteResponse {
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
+}
+
+function parseTurns(value: string | null): TranscriptTurn[] {
+  if (!value) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.flatMap((item) => {
+      if (!item || typeof item !== 'object') {
+        return [];
+      }
+      const row = item as Partial<TranscriptTurn>;
+      if (row.source !== 'mic' && row.source !== 'system' && row.source !== 'mix') {
+        return [];
+      }
+      const text = typeof row.text === 'string' ? row.text.trim() : '';
+      if (!text) {
+        return [];
+      }
+      return [
+        {
+          source: row.source,
+          startSec: Number(row.startSec) || 0,
+          endSec: Number(row.endSec) || 0,
+          text,
+        },
+      ];
+    });
+  } catch {
+    return [];
+  }
 }
 
 function splitSummary(value: string | null): string[] {
