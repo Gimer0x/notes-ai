@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import CoreGraphics
 import Foundation
@@ -166,11 +167,17 @@ final class CaptureSession: @unchecked Sendable {
     }
   }
 
+  @MainActor
+  private func requestMicrophonePermission() async -> Bool {
+    NSApp.activate()
+    return await AVAudioApplication.requestRecordPermission()
+  }
+
   // MARK: Hardware
 
   private func openHardware() async throws {
     if !withLock({ hardwareOn }) {
-      let granted = await AVAudioApplication.requestRecordPermission()
+      let granted = await requestMicrophonePermission()
       CaptureLog.line("mic permission granted=\(granted)")
       if !granted { throw CaptureError.micDenied }
     }

@@ -44,6 +44,28 @@ function isDevice(msg: HelperMsg): msg is HelperDevice {
   return 'event' in msg && msg.event === 'device';
 }
 
+export function requestScreenCaptureAccess(): Promise<void> {
+  const binary = helperBinaryPath();
+  if (!fs.existsSync(binary)) {
+    process.stderr.write('screen capture access skipped helper_missing\n');
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const child = spawn(binary, ['--request-screen-access'], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => {
+      process.stderr.write(chunk);
+    });
+    child.on('error', (error) => {
+      process.stderr.write(`screen capture access failed ${error.message}\n`);
+      resolve();
+    });
+    child.on('exit', () => resolve());
+  });
+}
+
 export class HelperClient {
   private child: ChildProcessWithoutNullStreams | null = null;
   private buffer = '';

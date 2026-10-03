@@ -113,7 +113,7 @@ The notepad does **not** open them. They stay off until **+ New note**.
 2. The spike page loads. `debug.ts` calls `start` directly, so the first buffers are part of the recording.
 3. `start` sets `recording = true` and a host-time origin, then `openHardware`:
    - Request microphone permission if this is the first open.
-   - Call `CGRequestScreenCaptureAccess()` so the process tap is allowed. `Info.plist` also has `NSAudioCaptureUsageDescription` for the system-audio capture prompt.
+   - Call `CGRequestScreenCaptureAccess()` again so a tap started after a later grant is allowed. The first prompt is at Electron launch and does not open the mic or the tap. `Info.plist` also has `NSAudioCaptureUsageDescription` for the system-audio capture prompt.
    - Start the microphone and the system tap at the same time. Each has its own retries. A slow or failing mic does not hold system audio behind it.
    - Microphone: up to 4 attempts, 400 ms apart, 5 second timeout per attempt. A timed-out start cannot publish the engine afterward; the generation token rejects it.
    - System tap: up to 4 attempts, 350 ms apart.
@@ -285,8 +285,8 @@ The on-screen clock is in the renderer, not in the helper. It starts on the firs
 
 | Permission | When | Why |
 | --- | --- | --- |
-| Microphone | First `openHardware`, and also `systemPreferences.askForMediaAccess` when Electron is ready | `AVAudioEngine` input. |
-| Screen & System Audio Recording | `CGRequestScreenCaptureAccess()` inside `openHardware` | The process tap is gated by this TCC prompt. Denying it leaves the note mic-only. |
+| Microphone | First `openHardware` asks on the main thread so the system dialog can appear. Electron also asks when it is ready. If macOS already denied it, **+ New note** opens System Settings → Microphone and does not show an error in the note. | `AVAudioEngine` input. |
+| Screen & System Audio Recording | `CGRequestScreenCaptureAccess()` when Electron is ready, from a helper process that exits without opening devices. `openHardware` calls it again when a note starts. | The process tap is gated by this TCC prompt. The launch call does not open the mic or the tap. Denying it leaves the note mic-only. |
 | Entitlement `com.apple.security.device.audio-input` | Ad-hoc signature in `build-helper.sh` | The helper binary is allowed to open an input device. |
 
 `npm start` in `frontend` runs `build-helper.sh` and then Electron. A helper that is already running keeps the old binary until the app is fully quit and started again.

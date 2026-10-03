@@ -1,5 +1,18 @@
 import AppKit
+import CoreGraphics
 import Foundation
+
+if CommandLine.arguments.contains("--request-screen-access") {
+  let accessApp = NSApplication.shared
+  accessApp.setActivationPolicy(.accessory)
+  DispatchQueue.main.async {
+    let granted = CGRequestScreenCaptureAccess()
+    CaptureLog.line("screen capture access requested granted=\(granted)")
+    exit(granted ? 0 : 1)
+  }
+  accessApp.run()
+  exit(0)
+}
 
 struct Inbound: Decodable {
   let id: String

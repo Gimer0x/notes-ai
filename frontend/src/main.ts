@@ -4,6 +4,7 @@ import * as path from 'path';
 import { AuthService } from './auth/auth.service';
 import type { CaptureDevice, CaptureLevels } from './capture/capture.service';
 import { segmentTracks } from './capture/segment-tracks';
+import { requestScreenCaptureAccess } from './capture/helper-client';
 import { NativeCaptureService } from './capture/native-capture.service';
 import { backendUrl, captureSpikeKey, loadFrontendEnv, websiteUrl } from './env';
 import { resetSessionTrace, trace, writeSessionTrace, type TraceSegment } from './debug/session-trace';
@@ -231,6 +232,21 @@ ipcMain.handle('capture:start', async () => {
   rememberSession(result);
   return result;
 });
+ipcMain.handle('permissions:microphone', async () => {
+  if (process.platform !== 'darwin') {
+    return false;
+  }
+  const status = systemPreferences.getMediaAccessStatus('microphone');
+  process.stderr.write(`mic permission status=${status}\n`);
+  if (status === 'not-determined') {
+    const granted = await systemPreferences.askForMediaAccess('microphone');
+    if (granted) {
+      return true;
+    }
+  }
+  await openMicrophoneSettings();
+  return false;
+});
 ipcMain.handle('capture:pause', () => capture.pause());
 ipcMain.handle('capture:resume', () => capture.resume());
 ipcMain.handle('capture:cancel', async () => {
@@ -355,9 +371,17 @@ function traceFailure(error: unknown): { message: string; segments: TraceSegment
   };
 }
 
+async function openMicrophoneSettings(): Promise<void> {
+  const url =
+    'x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Microphone';
+  await shell.openExternal(url);
+  process.stderr.write('mic permission settings opened\n');
+}
+
 app.whenReady().then(async () => {
   if (process.platform === 'darwin') {
     await systemPreferences.askForMediaAccess('microphone');
+    await requestScreenCaptureAccess();
   }
   createWindow();
   app.on('activate', () => {

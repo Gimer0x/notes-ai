@@ -9,6 +9,7 @@ let captureFinished = false;
 let heardSound = false;
 let minListenSeconds: number | null = null;
 let captureState: 'idle' | 'listening' | 'paused' = 'idle';
+let waitingForMicrophone = false;
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 
@@ -322,15 +323,58 @@ function applyLevels(levels: CaptureLevels): void {
   }
 }
 
+function applyStart(result: { inputName: string }): void {
+  captureState = 'listening';
+  applyDevice({ inputName: result.inputName, lost: !result.inputName });
+  applyGenerateEnabled();
+}
+
+function watchMicrophoneGrant(): void {
+  if (waitingForMicrophone) {
+    return;
+  }
+  waitingForMicrophone = true;
+  window.addEventListener(
+    'focus',
+    () => {
+      waitingForMicrophone = false;
+      if (captureFinished || captureState === 'listening' || captureState === 'paused') {
+        return;
+      }
+      void withBusy(() => startRecording());
+    },
+    { once: true },
+  );
+}
+
 async function startRecording(): Promise<void> {
   if (captureFinished) {
     return;
   }
   resetTimer();
-  const result = await pith.capture.start();
-  captureState = 'listening';
-  applyDevice({ inputName: result.inputName, lost: !result.inputName });
-  applyGenerateEnabled();
+  try {
+    applyStart(await pith.capture.start());
+  } catch (error) {
+    if (errorCode(error) !== 'mic_denied') {
+      throw error;
+    }
+    $('error').textContent = '';
+    const granted = await pith.permissions.promptMicrophone();
+    if (!granted) {
+      watchMicrophoneGrant();
+      return;
+    }
+    try {
+      applyStart(await pith.capture.start());
+    } catch (retryError) {
+      if (errorCode(retryError) !== 'mic_denied') {
+        throw retryError;
+      }
+      $('error').textContent = '';
+      await pith.permissions.promptMicrophone();
+      watchMicrophoneGrant();
+    }
+  }
 }
 
 async function withBusy(fn: () => Promise<void>): Promise<void> {

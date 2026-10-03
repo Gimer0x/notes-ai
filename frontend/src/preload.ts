@@ -52,6 +52,9 @@ contextBridge.exposeInMainWorld('pith', {
       };
     },
   },
+  permissions: {
+    promptMicrophone: (): Promise<boolean> => ipcRenderer.invoke('permissions:microphone'),
+  },
   shell: {
     openSpike: (): Promise<void> => ipcRenderer.invoke('shell:openSpike'),
     openNotepad: (): Promise<void> => ipcRenderer.invoke('shell:openNotepad'),

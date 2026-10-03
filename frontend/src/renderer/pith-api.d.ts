@@ -39,6 +39,9 @@ type PithApi = {
     onLevels: (listener: (levels: CaptureLevels) => void) => () => void;
     onDevice: (listener: (device: CaptureDevice) => void) => () => void;
   };
+  permissions: {
+    promptMicrophone: () => Promise<boolean>;
+  };
   shell: {
     openSpike: () => Promise<void>;
     openNotepad: () => Promise<void>;
