@@ -75,6 +75,78 @@ function noteTitle(note: Note): string {
   return note.title?.trim() || t.untitled;
 }
 
+function stripNumeration(line: string): string {
+  let text = line.trim();
+  let previous = '';
+  while (text && text !== previous) {
+    previous = text;
+    text = text.replace(/^(?:[-*•]+|\d+[.)\-:]?)\s+/, '').trim();
+  }
+  return text;
+}
+
+function titleFromSummary(lines: string[]): string | null {
+  for (const line of lines) {
+    const stripped = stripNumeration(line);
+    if (stripped) {
+      return stripped.slice(0, 120);
+    }
+  }
+  return null;
+}
+
+function setStaticTitle(text: string): void {
+  const heading = $('mainTitle');
+  heading.onblur = null;
+  heading.onkeydown = null;
+  heading.contentEditable = 'false';
+  heading.removeAttribute('aria-label');
+  heading.textContent = text;
+}
+
+function bindHeadingTitle(note: Note): void {
+  const heading = $('mainTitle');
+  heading.contentEditable = 'true';
+  heading.spellcheck = false;
+  heading.setAttribute('aria-label', t.noteTitleLabel);
+  if (document.activeElement !== heading) {
+    heading.textContent = note.title?.trim() || t.untitled;
+  }
+  heading.onkeydown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      heading.blur();
+    }
+  };
+  heading.onblur = () => {
+    let next = (heading.textContent ?? '').replace(/\s+/g, ' ').trim();
+    if (!next) {
+      next = titleFromSummary(note.summaryText) ?? '';
+    }
+    if (!next || (next === t.untitled && !note.title?.trim())) {
+      heading.textContent = t.untitled;
+      if (!note.title?.trim()) {
+        return;
+      }
+      next = '';
+    }
+    next = next.slice(0, 120);
+    heading.textContent = next || t.untitled;
+    if ((note.title ?? '') === next) {
+      return;
+    }
+    void pith.notes.rename(note.id, next || null).then((updated) => {
+      replaceNote(updated);
+      if (document.activeElement !== heading) {
+        heading.textContent = noteTitle(updated);
+      }
+    }).catch((error: unknown) => {
+      heading.textContent = noteTitle(note);
+      setMainError(apiMessage(error));
+    });
+  };
+}
+
 function noteWhen(note: Note): Date {
   const date = new Date(note.startedAt ?? note.createdAt);
   return Number.isNaN(date.getTime()) ? new Date() : date;
@@ -569,7 +641,7 @@ function renderWorkspaces(): void {
 }
 
 function renderHome(): void {
-  $('mainTitle').textContent = t.home;
+  setStaticTitle(t.home);
   if (notes.length === 0) {
     $('view').innerHTML = `<p class="empty">${t.emptyRecordings}</p>`;
     return;
@@ -579,7 +651,7 @@ function renderHome(): void {
 }
 
 function renderProfile(): void {
-  $('mainTitle').textContent = t.profile;
+  setStaticTitle(t.profile);
   $('view').innerHTML = `
     <div class="profile">
       <div class="profile-row">
@@ -619,7 +691,7 @@ function renderWorkspace(id: string): void {
     render();
     return;
   }
-  $('mainTitle').textContent = workspace.name;
+  setStaticTitle(workspace.name);
   const items = notesIn(id);
   if (items.length === 0) {
     $('view').innerHTML = `<p class="empty">${t.emptyNotes}</p>`;
@@ -686,7 +758,7 @@ function renderNote(workspaceId: string, noteId: string): void {
     render();
     return;
   }
-  $('mainTitle').textContent = noteTitle(note);
+  bindHeadingTitle(note);
   const lines = note.summaryText;
   const options = workspaces
     .map(
@@ -697,7 +769,6 @@ function renderNote(workspaceId: string, noteId: string): void {
   const hasTranscript = note.transcriptTurns.length > 0 || Boolean(note.transcriptText?.trim());
   $('view').innerHTML = `
     <div class="detail">
-      <input id="noteTitle" class="title-field" maxlength="120" />
       <span class="status-pill ${note.status}">${statusLabel(note.status)}</span>
       ${lines.length ? `<ol>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ol>` : `<p class="empty">${t.noSummaryYet}</p>`}
       ${hasTranscript ? `<button type="button" class="text-btn" id="showTranscript"></button>` : ''}
@@ -716,19 +787,6 @@ function renderNote(workspaceId: string, noteId: string): void {
       render();
     });
   }
-  const titleInput = document.getElementById('noteTitle') as HTMLInputElement;
-  titleInput.placeholder = t.noteTitlePlaceholder;
-  titleInput.setAttribute('aria-label', t.noteTitleLabel);
-  titleInput.value = note.title ?? '';
-  titleInput.addEventListener('change', () => {
-    const next = titleInput.value.trim();
-    void pith.notes.rename(note.id, next || null).then((updated) => {
-      replaceNote(updated);
-      $('mainTitle').textContent = noteTitle(updated);
-    }).catch((error: unknown) => {
-      setMainError(apiMessage(error));
-    });
-  });
   const retry = document.getElementById('retryNote');
   if (retry) {
     retry.textContent = t.retry;
@@ -781,7 +839,7 @@ function renderTranscript(workspaceId: string, noteId: string): void {
     render();
     return;
   }
-  $('mainTitle').textContent = noteTitle(note);
+  bindHeadingTitle(note);
   const turns = transcriptTurns(note);
   const rows: string[] = [];
   let previousEnd = -1;

@@ -299,6 +299,14 @@ button.auth-link svg {
   font-weight: 500;
 }
 
+.topbar h1[contenteditable='true'] {
+  min-width: 2ch;
+  outline: none;
+  border: none;
+  background: transparent;
+  cursor: text;
+}
+
 .top-actions {
   display: flex;
   align-items: center;
