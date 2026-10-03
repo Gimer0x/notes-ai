@@ -189,12 +189,23 @@ function startListenClock(): void {
   }, 1000);
 }
 
+function syncNewNote(): void {
+  const button = $('openSpike') as HTMLButtonElement;
+  const signedIn = Boolean(me);
+  button.disabled = !signedIn;
+  button.title = signedIn ? '' : t.signInRequired;
+}
+
 async function refreshMe(): Promise<void> {
   me = await pith.auth.me();
   const signedIn = Boolean(me);
   $('signIn').hidden = signedIn;
   $('signOut').hidden = !signedIn;
   fillProfileFields();
+  syncNewNote();
+  if (signedIn && $('mainError').textContent === t.signInRequired) {
+    setMainError('');
+  }
 }
 
 function fillProfileFields(): void {
@@ -714,6 +725,7 @@ function requestDeleteWorkspace(id: string): void {
 
 function render(): void {
   setMainError('');
+  syncNewNote();
   $('homeBtn').classList.toggle('active', view.name === 'home');
   $('profileBtn').classList.toggle('active', view.name === 'profile');
   renderWorkspaces();
@@ -806,7 +818,17 @@ async function init(): Promise<void> {
       hideAddWorkspaceForm();
     }
   });
-  $('openSpike').addEventListener('click', () => pith.shell.openSpike());
+  $('openSpike').addEventListener('click', () => {
+    if (!me) {
+      setMainError(t.signInRequired);
+      return;
+    }
+    setMainError('');
+    void pith.shell.openSpike().catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : '';
+      setMainError(message.includes('sign_in_required') ? t.signInRequired : t.errorGeneric);
+    });
+  });
   $('confirmCancel').addEventListener('click', () => closeConfirm());
   $('confirmOk').addEventListener('click', () => confirmPending());
   $('confirmDialog').addEventListener('click', (event) => {

@@ -176,6 +176,10 @@ function createWindow(): void {
 }
 
 ipcMain.handle('shell:openSpike', async () => {
+  const user = await signedInUser();
+  if (!user) {
+    throw new Error('sign_in_required');
+  }
   beginNote();
   try {
     await capture.cancel();
@@ -206,7 +210,7 @@ ipcMain.handle('i18n:messages', (_event, locale: 'en' | 'es') => {
 ipcMain.handle('config:get', () => loadAppConfig());
 ipcMain.handle('auth:login', () => auth.login());
 ipcMain.handle('auth:logout', () => auth.logout());
-ipcMain.handle('auth:me', async () => {
+async function signedInUser(): Promise<unknown | null> {
   const token = await auth.getAccessToken();
   if (!token) {
     return null;
@@ -218,7 +222,9 @@ ipcMain.handle('auth:me', async () => {
     return null;
   }
   return response.json();
-});
+}
+
+ipcMain.handle('auth:me', () => signedInUser());
 ipcMain.handle('billing:upgrade', async () => {
   await shell.openExternal(`${websiteUrl()}/pricing`);
 });

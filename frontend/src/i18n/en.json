@@ -69,6 +69,7 @@
   "addWorkspace": "Add workspace",
   "workspaceNamePlaceholder": "Workspace name",
   "newNote": "New note",
+  "signInRequired": "Sign in to create a note.",
   "untitled": "Untitled",
   "emptyNotes": "No notes in this workspace yet.",
   "noteCount": "{count} notes",

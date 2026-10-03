@@ -69,6 +69,7 @@
   "addWorkspace": "Añadir espacio",
   "workspaceNamePlaceholder": "Nombre del espacio",
   "newNote": "Nueva nota",
+  "signInRequired": "Inicia sesión para crear una nota.",
   "untitled": "Sin título",
   "emptyNotes": "Aún no hay notas en este espacio.",
   "noteCount": "{count} notas",
