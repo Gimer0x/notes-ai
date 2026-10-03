@@ -27,6 +27,7 @@ html,
 body {
   margin: 0;
   height: 100%;
+  overflow: hidden;
   background: var(--page);
   color: var(--ink);
   font-family: 'Source Sans 3', ui-sans-serif, system-ui, sans-serif;
@@ -37,11 +38,15 @@ body {
   display: grid;
   grid-template-columns: 260px 1fr;
   height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar {
   position: relative;
   z-index: 3;
+  min-height: 0;
+  overflow: hidden;
   background: var(--sidebar);
   border-right: 1px solid var(--sidebar-line);
   color: var(--sidebar-ink);
@@ -280,6 +285,8 @@ button.auth-link svg {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   background: var(--page);
 }
 
@@ -318,6 +325,7 @@ button.auth-link svg {
   padding: 8px 24px 24px;
   overflow: auto;
   flex: 1;
+  min-height: 0;
 }
 
 .note-meta {
@@ -739,9 +747,32 @@ button.text-btn:hover:not(:disabled) {
 
 .detail-actions {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   margin: 16px 0;
+}
+
+.detail-actions label {
+  color: var(--muted);
+  line-height: 1;
+}
+
+.detail-actions select {
+  border: none;
+  border-radius: 0;
+  padding: 0 16px 0 0;
+  line-height: 1.2;
+  background-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%238a8278' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right center;
+  cursor: pointer;
+  appearance: none;
+}
+
+.detail-actions select:focus {
+  outline: none;
 }
 
 .listen {
