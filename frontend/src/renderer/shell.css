@@ -339,12 +339,6 @@ button.auth-link svg {
   margin-inline: auto;
 }
 
-#view:has(#homeWorkspaces) > .hint {
-  max-width: 720px;
-  width: 100%;
-  margin-inline: auto;
-}
-
 .note-day {
   margin: 20px 0 8px;
   font-size: 0.8rem;
@@ -432,6 +426,17 @@ button.auth-link svg {
 .note-title {
   font-weight: 500;
   color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note-workspace {
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .icon-btn {

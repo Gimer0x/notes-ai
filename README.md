@@ -129,8 +129,8 @@ This MVP does not use a custom URL scheme (`pith://`), so a browser tab cannot l
 ### Notepad mock (Step 12a)
 
 1. Sidebar order: mock **Search**, **Home**, **Profile**, then **Workspace** and the list. Hover or select a workspace to show **...** → **Delete workspace**. If the workspace still has notes, a dialog explains it must be emptied first. The last workspace cannot be deleted. **+ Add workspace** under the list opens a name field (Enter to save, Escape to cancel). Language is on **Profile**, not the top bar.
-2. **Home** shows fake workspaces in a centered fixed-width column. Orange **+ New note** opens the original headphone spike only after **Sign in**. Open a workspace to see mock notes.
-3. Notes are grouped by day (Today / date), with an icon, title, and time on the right, in the same centered fixed-width column. Hover or select a note to hide the time and show **...** in that same right slot → **Delete note** (regular weight, not bold). Confirm with **Cancel** or **Delete permanently**. **Processing** notes cannot be deleted. **Failed** notes have **Retry** (mock).
+2. **Home** lists recordings, newest first, grouped by day (Today, Yesterday, or the date). Each row shows the meeting title, the time on the right, and the workspace name under the title. There is no upcoming-events section. Orange **+ New note** opens the original headphone spike only after **Sign in**.
+3. Opening a workspace shows that workspace's notes the same way, without repeating the workspace name. Hover or select a note to hide the time and show **...** in that same right slot → **Delete note** (regular weight, not bold). Confirm with **Cancel** or **Delete permanently**. **Processing** notes cannot be deleted. **Failed** notes have **Retry** (mock).
 
 ### Capture spike (headphones)
 

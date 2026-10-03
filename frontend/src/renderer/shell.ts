@@ -451,28 +451,12 @@ function renderWorkspaces(): void {
 
 function renderHome(): void {
   $('mainTitle').textContent = t.home;
-  $('view').innerHTML = `
-    <p class="hint">${t.homeLead}</p>
-    <div class="notes" id="homeWorkspaces"></div>
-  `;
-  const host = document.getElementById('homeWorkspaces') as HTMLElement;
-  for (const workspace of workspaces) {
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'note-row';
-    const count = notesIn(workspace.id).length;
-    const name = document.createElement('span');
-    name.textContent = label(workspace.name, workspace.nameKey);
-    const meta = document.createElement('span');
-    meta.className = 'note-meta';
-    meta.textContent = t.noteCount.replace('{count}', String(count));
-    row.append(name, meta);
-    row.addEventListener('click', () => {
-      view = { name: 'workspace', id: workspace.id };
-      render();
-    });
-    host.append(row);
+  if (notes.length === 0) {
+    $('view').innerHTML = `<p class="empty">${t.emptyRecordings}</p>`;
+    return;
   }
+  $('view').innerHTML = `<div class="note-feed" id="noteList"></div>`;
+  renderNoteFeed(document.getElementById('noteList') as HTMLElement, notes, true);
 }
 
 function renderProfile(): void {
@@ -523,7 +507,10 @@ function renderWorkspace(id: string): void {
     return;
   }
   $('view').innerHTML = `<div class="note-feed" id="noteList"></div>`;
-  const list = document.getElementById('noteList') as HTMLElement;
+  renderNoteFeed(document.getElementById('noteList') as HTMLElement, items, false);
+}
+
+function renderNoteFeed(list: HTMLElement, items: Note[], showWorkspace: boolean): void {
   const ordered = [...items].sort((a, b) => b.at.getTime() - a.at.getTime());
   const groups = new Map<string, Note[]>();
   for (const note of ordered) {
@@ -547,6 +534,13 @@ function renderWorkspace(id: string): void {
       name.className = 'note-title';
       name.textContent = label(note.title, note.titleKey);
       copy.append(name);
+      if (showWorkspace) {
+        const workspace = workspaceById(note.workspaceId);
+        const sub = document.createElement('span');
+        sub.className = 'note-workspace';
+        sub.textContent = workspace ? label(workspace.name, workspace.nameKey) : '';
+        copy.append(sub);
+      }
       const end = document.createElement('span');
       end.className = 'note-end';
       const time = document.createElement('span');
@@ -556,11 +550,9 @@ function renderWorkspace(id: string): void {
       row.append(noteIcon(), copy, end);
       row.addEventListener('click', () => {
         view =
-          note.status === 'listening' ||
-          note.status === 'paused' ||
-          note.status === 'idle'
-            ? { name: 'listen', workspaceId: id, noteId: note.id }
-            : { name: 'note', workspaceId: id, noteId: note.id };
+          note.status === 'listening' || note.status === 'paused' || note.status === 'idle'
+            ? { name: 'listen', workspaceId: note.workspaceId, noteId: note.id }
+            : { name: 'note', workspaceId: note.workspaceId, noteId: note.id };
         render();
       });
       list.append(row);
