@@ -1,4 +1,4 @@
-type NoteStatus = 'ready' | 'processing' | 'failed' | 'listening' | 'paused' | 'idle';
+type NoteStatus = 'ready' | 'processing' | 'failed' | 'listening' | 'paused';
 
 type Me = {
   email: string;
@@ -8,16 +8,27 @@ type Me = {
   remainingNotes: number | null;
 };
 
-type Workspace = { id: string; nameKey?: string; name?: string };
+type Workspace = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
 type Note = {
   id: string;
   workspaceId: string;
-  titleKey?: string;
-  title?: string;
+  title: string | null;
   status: NoteStatus;
-  at: Date;
-  summaryKeys?: string[];
-  summary?: string[];
+  summaryText: string[];
+  transcriptText: string | null;
+  language: 'en' | 'es' | null;
+  errorCode: 'upload' | 'stt' | 'gpt' | null;
+  errorMessage: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  durationSeconds: number | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type View =
@@ -38,48 +49,59 @@ let locale: Locale = 'en';
 let t: Messages = {};
 let me: Me | null = null;
 let view: View = { name: 'home' };
-let nextId = 4;
 let listenSeconds = 0;
+let heardSound = false;
+let listsReady = false;
+let liveNoteId: string | null = null;
+let captureState: 'idle' | 'listening' | 'paused' = 'idle';
 let listenTimer: number | null = null;
 let searchQuery = '';
 let addingWorkspace = false;
 let pendingDialog: PendingDialog | null = null;
 
-let workspaces: Workspace[] = [
-  { id: 'ws-personal', nameKey: 'mockWorkspacePersonal' },
-  { id: 'ws-client', nameKey: 'mockWorkspaceClient' },
-];
+let workspaces: Workspace[] = [];
+let notes: Note[] = [];
 
-let notes: Note[] = [
-  {
-    id: 'n1',
-    workspaceId: 'ws-personal',
-    titleKey: 'mockNoteStandup',
-    status: 'ready',
-    at: new Date('2026-08-21T10:15:00'),
-    summaryKeys: ['mockBullet1', 'mockBullet2', 'mockBullet3'],
-  },
-  {
-    id: 'n2',
-    workspaceId: 'ws-personal',
-    titleKey: 'mockNoteDesign',
-    status: 'processing',
-    at: new Date('2026-08-28T09:40:00'),
-  },
-  {
-    id: 'n3',
-    workspaceId: 'ws-client',
-    titleKey: 'mockNoteOneOnOne',
-    status: 'failed',
-    at: new Date('2026-08-27T16:05:00'),
-  },
-];
+function noteTitle(note: Note): string {
+  return note.title?.trim() || t.untitled;
+}
 
-function label(value: string | undefined, key?: string): string {
-  if (key && t[key]) {
-    return t[key];
+function noteWhen(note: Note): Date {
+  const date = new Date(note.startedAt ?? note.createdAt);
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+}
+
+function replaceNote(note: Note): void {
+  notes = notes.map((item) => (item.id === note.id ? note : item));
+}
+
+function apiMessage(error: unknown): string {
+  const code = error instanceof Error ? error.message : '';
+  if (code.includes('sign_in_required')) {
+    return t.signInRequired;
   }
-  return value?.trim() || t.untitled;
+  if (code.includes('no_listening_time')) {
+    return t.errorNoListeningTime;
+  }
+  if (code.includes('no_notes')) {
+    return t.errorNoNotes;
+  }
+  if (code.includes('last_workspace')) {
+    return t.errorLastWorkspace;
+  }
+  if (code.includes('workspace_not_empty')) {
+    return t.errorWorkspaceNotEmpty;
+  }
+  if (code.includes('note_processing')) {
+    return t.errorNoteProcessing;
+  }
+  if (code.includes('record_again')) {
+    return t.errorRecordAgain;
+  }
+  if (code.includes('mic_denied')) {
+    return t.errorMicDenied;
+  }
+  return t.errorGeneric;
 }
 
 function planLabel(user: Me): string {
@@ -107,9 +129,6 @@ function statusLabel(status: NoteStatus): string {
   }
   if (status === 'paused') {
     return t.statusPaused;
-  }
-  if (status === 'idle') {
-    return t.noteStatusIdle;
   }
   return t.noteStatusListening;
 }
@@ -140,7 +159,7 @@ function formatDayHeader(date: Date): string {
 }
 
 function formatNoteTime(note: Note): string {
-  return note.at.toLocaleTimeString(dateLocale(), { timeStyle: 'short' });
+  return noteWhen(note).toLocaleTimeString(dateLocale(), { timeStyle: 'short' });
 }
 
 function noteIcon(): HTMLElement {
@@ -177,8 +196,7 @@ function stopListenClock(): void {
 function startListenClock(): void {
   stopListenClock();
   listenTimer = window.setInterval(() => {
-    const note = notes.find((item) => item.status === 'listening');
-    if (!note) {
+    if (!liveNoteId || captureState !== 'listening') {
       return;
     }
     listenSeconds += 1;
@@ -189,11 +207,77 @@ function startListenClock(): void {
   }, 1000);
 }
 
+function recordingWorkspace(): Workspace | null {
+  const current = view;
+  if (current.name === 'workspace') {
+    return workspaces.find((item) => item.id === current.id) ?? null;
+  }
+  if (current.name === 'note' || current.name === 'listen') {
+    return workspaces.find((item) => item.id === current.workspaceId) ?? null;
+  }
+  return workspaces[0] ?? null;
+}
+
 function syncNewNote(): void {
   const button = $('openSpike') as HTMLButtonElement;
   const signedIn = Boolean(me);
   button.disabled = !signedIn;
   button.title = signedIn ? '' : t.signInRequired;
+}
+
+async function reloadLists(): Promise<void> {
+  if (!me) {
+    workspaces = [];
+    notes = [];
+    listsReady = false;
+    syncNewNote();
+    return;
+  }
+  workspaces = await pith.notes.listWorkspaces();
+  const groups = await Promise.all(
+    workspaces.map((workspace) => pith.notes.listNotes(workspace.id)),
+  );
+  notes = groups.flat();
+  const staleIds = new Set(
+    notes
+      .filter(
+        (note) =>
+          note.id !== liveNoteId &&
+          (note.status === 'listening' || note.status === 'paused'),
+      )
+      .map((note) => note.id),
+  );
+  await Promise.all(
+    [...staleIds].map((id) => pith.notes.cancel(id).catch(() => undefined)),
+  );
+  if (staleIds.size > 0) {
+    notes = notes.filter((note) => !staleIds.has(note.id));
+  }
+  listsReady = true;
+  syncNewNote();
+}
+
+async function abandonListen(): Promise<void> {
+  const noteId = liveNoteId;
+  if (!noteId) {
+    return;
+  }
+  liveNoteId = null;
+  heardSound = false;
+  stopListenClock();
+  listenSeconds = 0;
+  try {
+    await pith.capture.cancel();
+  } catch {
+    // The helper may already be idle.
+  }
+  captureState = 'idle';
+  try {
+    await pith.notes.cancel(noteId);
+  } catch {
+    // The note may already have been stopped.
+  }
+  notes = notes.filter((item) => item.id !== noteId);
 }
 
 async function refreshMe(): Promise<void> {
@@ -277,10 +361,17 @@ function commitAddWorkspace(): void {
   if (!name) {
     return;
   }
-  workspaces.push({ id: `ws-${nextId++}`, name });
-  hideAddWorkspaceForm();
-  view = { name: 'workspace', id: workspaces[workspaces.length - 1].id };
-  render();
+  void (async () => {
+    try {
+      const workspace = await pith.notes.createWorkspace(name);
+      workspaces = [...workspaces, workspace];
+      hideAddWorkspaceForm();
+      view = { name: 'workspace', id: workspace.id };
+      render();
+    } catch (error) {
+      setSideError(apiMessage(error));
+    }
+  })();
 }
 
 function closeMenus(): void {
@@ -375,22 +466,25 @@ function confirmPending(): void {
   if (!pendingDialog) {
     return;
   }
-  if (pendingDialog.kind === 'delete-note') {
-    const workspaceId = pendingDialog.note.workspaceId;
-    const noteId = pendingDialog.note.id;
-    notes = notes.filter((item) => item.id !== noteId);
-    closeConfirm();
-    view = { name: 'workspace', id: workspaceId };
-    render();
-    return;
-  }
-  if (pendingDialog.kind === 'delete-workspace') {
-    const id = pendingDialog.id;
-    workspaces = workspaces.filter((item) => item.id !== id);
-    closeConfirm();
-    view = { name: 'home' };
-    render();
-  }
+  const pending = pendingDialog;
+  closeConfirm();
+  void (async () => {
+    try {
+      if (pending.kind === 'delete-note') {
+        await pith.notes.delete(pending.note.id);
+        notes = notes.filter((item) => item.id !== pending.note.id);
+        view = { name: 'workspace', id: pending.note.workspaceId };
+      } else if (pending.kind === 'delete-workspace') {
+        await pith.notes.deleteWorkspace(pending.id);
+        workspaces = workspaces.filter((item) => item.id !== pending.id);
+        notes = notes.filter((item) => item.workspaceId !== pending.id);
+        view = { name: 'home' };
+      }
+      render();
+    } catch (error) {
+      setMainError(apiMessage(error));
+    }
+  })();
 }
 
 function setSideError(message: string): void {
@@ -417,7 +511,7 @@ function renderWorkspaces(): void {
     if (!query) {
       return true;
     }
-    return label(workspace.name, workspace.nameKey).toLowerCase().includes(query);
+    return workspace.name.toLowerCase().includes(query);
   });
   if (query && visible.length === 0) {
     const empty = document.createElement('p');
@@ -432,7 +526,7 @@ function renderWorkspaces(): void {
     row.tabIndex = 0;
     const name = document.createElement('span');
     name.className = 'workspace-name';
-    name.textContent = label(workspace.name, workspace.nameKey);
+    name.textContent = workspace.name;
     const selected =
       (view.name === 'workspace' && view.id === workspace.id) ||
       (view.name === 'note' && view.workspaceId === workspace.id) ||
@@ -442,8 +536,13 @@ function renderWorkspaces(): void {
     }
     row.append(name, makeOverflowMenu(row, t.deleteWorkspace, () => requestDeleteWorkspace(workspace.id)));
     row.addEventListener('click', () => {
-      view = { name: 'workspace', id: workspace.id };
-      render();
+      void (async () => {
+        if (liveNoteId) {
+          await abandonListen();
+        }
+        view = { name: 'workspace', id: workspace.id };
+        render();
+      })();
     });
     list.append(row);
   }
@@ -500,7 +599,7 @@ function renderWorkspace(id: string): void {
     render();
     return;
   }
-  $('mainTitle').textContent = label(workspace.name, workspace.nameKey);
+  $('mainTitle').textContent = workspace.name;
   const items = notesIn(id);
   if (items.length === 0) {
     $('view').innerHTML = `<p class="empty">${t.emptyNotes}</p>`;
@@ -511,10 +610,13 @@ function renderWorkspace(id: string): void {
 }
 
 function renderNoteFeed(list: HTMLElement, items: Note[], showWorkspace: boolean): void {
-  const ordered = [...items].sort((a, b) => b.at.getTime() - a.at.getTime());
+  const ordered = [...items].sort(
+    (a, b) => noteWhen(b).getTime() - noteWhen(a).getTime(),
+  );
   const groups = new Map<string, Note[]>();
   for (const note of ordered) {
-    const key = `${note.at.getFullYear()}-${note.at.getMonth()}-${note.at.getDate()}`;
+    const when = noteWhen(note);
+    const key = `${when.getFullYear()}-${when.getMonth()}-${when.getDate()}`;
     const bucket = groups.get(key) ?? [];
     bucket.push(note);
     groups.set(key, bucket);
@@ -522,7 +624,7 @@ function renderNoteFeed(list: HTMLElement, items: Note[], showWorkspace: boolean
   for (const group of groups.values()) {
     const heading = document.createElement('p');
     heading.className = 'note-day';
-    heading.textContent = formatDayHeader(group[0].at);
+    heading.textContent = formatDayHeader(noteWhen(group[0]));
     list.append(heading);
     for (const note of group) {
       const row = document.createElement('div');
@@ -532,13 +634,13 @@ function renderNoteFeed(list: HTMLElement, items: Note[], showWorkspace: boolean
       copy.className = 'note-copy';
       const name = document.createElement('span');
       name.className = 'note-title';
-      name.textContent = label(note.title, note.titleKey);
+      name.textContent = noteTitle(note);
       copy.append(name);
       if (showWorkspace) {
         const workspace = workspaceById(note.workspaceId);
         const sub = document.createElement('span');
         sub.className = 'note-workspace';
-        sub.textContent = workspace ? label(workspace.name, workspace.nameKey) : '';
+        sub.textContent = workspace ? workspace.name : '';
         copy.append(sub);
       }
       const end = document.createElement('span');
@@ -549,10 +651,7 @@ function renderNoteFeed(list: HTMLElement, items: Note[], showWorkspace: boolean
       end.append(time, makeOverflowMenu(row, t.deleteNote, () => openDeleteConfirm(note)));
       row.append(noteIcon(), copy, end);
       row.addEventListener('click', () => {
-        view =
-          note.status === 'listening' || note.status === 'paused' || note.status === 'idle'
-            ? { name: 'listen', workspaceId: note.workspaceId, noteId: note.id }
-            : { name: 'note', workspaceId: note.workspaceId, noteId: note.id };
+        view = { name: 'note', workspaceId: note.workspaceId, noteId: note.id };
         render();
       });
       list.append(row);
@@ -567,22 +666,22 @@ function renderNote(workspaceId: string, noteId: string): void {
     render();
     return;
   }
-  $('mainTitle').textContent = label(note.title, note.titleKey);
-  const bullets = (note.summaryKeys ?? []).map((key) => t[key] || key);
-  const extra = note.summary ?? [];
-  const lines = [...bullets, ...extra];
+  $('mainTitle').textContent = noteTitle(note);
+  const lines = note.summaryText;
   const options = workspaces
     .map(
       (workspace) =>
-        `<option value="${escapeHtml(workspace.id)}" ${workspace.id === note.workspaceId ? 'selected' : ''}>${escapeHtml(label(workspace.name, workspace.nameKey))}</option>`,
+        `<option value="${escapeHtml(workspace.id)}" ${workspace.id === note.workspaceId ? 'selected' : ''}>${escapeHtml(workspace.name)}</option>`,
     )
     .join('');
+  const transcript = note.transcriptText?.trim() ?? '';
   $('view').innerHTML = `
     <div class="detail">
       <label class="title-label" for="noteTitle">${t.noteTitleLabel}</label>
       <input id="noteTitle" class="title-field" maxlength="120" />
       <span class="status-pill ${note.status}">${statusLabel(note.status)}</span>
       ${lines.length ? `<ol>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ol>` : `<p class="empty">${t.noSummaryYet}</p>`}
+      ${transcript ? `<p class="hint transcript">${escapeHtml(transcript)}</p>` : ''}
       <div class="detail-actions">
         <label for="moveNote">${t.moveNote}</label>
         <select id="moveNote">${options}</select>
@@ -592,26 +691,39 @@ function renderNote(workspaceId: string, noteId: string): void {
   `;
   const titleInput = document.getElementById('noteTitle') as HTMLInputElement;
   titleInput.placeholder = t.noteTitlePlaceholder;
-  titleInput.value = note.titleKey ? t[note.titleKey] || '' : (note.title ?? '');
-  titleInput.addEventListener('input', () => {
-    note.title = titleInput.value;
-    note.titleKey = undefined;
+  titleInput.value = note.title ?? '';
+  titleInput.addEventListener('change', () => {
+    const next = titleInput.value.trim();
+    void pith.notes.rename(note.id, next || null).then((updated) => {
+      replaceNote(updated);
+      $('mainTitle').textContent = noteTitle(updated);
+    }).catch((error: unknown) => {
+      setMainError(apiMessage(error));
+    });
   });
   const retry = document.getElementById('retryNote');
   if (retry) {
     retry.textContent = t.retry;
     retry.addEventListener('click', () => {
-      note.status = 'ready';
-      note.summaryKeys = ['mockBullet1', 'mockBullet2', 'mockBullet3'];
-      render();
+      void pith.notes.retry(note.id).then((updated) => {
+        replaceNote(updated);
+        render();
+      }).catch((error: unknown) => {
+        setMainError(apiMessage(error));
+      });
     });
   }
   (document.getElementById('moveNote') as HTMLSelectElement).addEventListener(
     'change',
     (event) => {
-      note.workspaceId = (event.target as HTMLSelectElement).value;
-      view = { name: 'note', workspaceId: note.workspaceId, noteId: note.id };
-      render();
+      const workspaceId = (event.target as HTMLSelectElement).value;
+      void pith.notes.move(note.id, workspaceId).then((updated) => {
+        replaceNote(updated);
+        view = { name: 'note', workspaceId: updated.workspaceId, noteId: updated.id };
+        render();
+      }).catch((error: unknown) => {
+        setMainError(apiMessage(error));
+      });
     },
   );
 }
@@ -623,79 +735,118 @@ function renderListen(workspaceId: string, noteId: string): void {
     render();
     return;
   }
-  $('mainTitle').textContent = label(note.title, note.titleKey) || t.untitled;
-  const listening = note.status === 'listening';
+  $('mainTitle').textContent = noteTitle(note);
+  const listening = captureState === 'listening';
+  const paused = captureState === 'paused';
   $('view').innerHTML = `
     <div class="listen">
-      <p class="hint">${t.listeningMockHint}</p>
+      <p class="hint">${t.listenHint}</p>
       <label class="title-label" for="noteTitle">${t.noteTitleLabel}</label>
       <input id="noteTitle" class="title-field" maxlength="120" />
+      <div class="listen-levels">
+        <div>
+          <span>${t.levelMic}</span>
+          <div class="level-track"><div id="micLevel" class="level-fill"></div></div>
+        </div>
+        <div>
+          <span>${t.levelSystem}</span>
+          <div class="level-track"><div id="systemLevel" class="level-fill"></div></div>
+        </div>
+      </div>
       <div class="clock" id="listenClock">${formatClock(listenSeconds)}</div>
-      <p id="listenStatus">${statusLabel(note.status)}</p>
+      <p id="listenStatus">${statusLabel(paused ? 'paused' : 'listening')}</p>
       <p class="hint" id="listenQuota"></p>
       <div class="detail-actions">
-        <button type="button" class="primary" id="listenStart" ${listening || note.status === 'paused' ? 'disabled' : ''}></button>
         <button type="button" id="listenPause" ${listening ? '' : 'disabled'}></button>
-        <button type="button" id="listenResume" ${note.status === 'paused' ? '' : 'disabled'}></button>
-        <button type="button" id="listenStop" ${listening || note.status === 'paused' ? '' : 'disabled'}></button>
+        <button type="button" id="listenResume" ${paused ? '' : 'disabled'}></button>
+        <button type="button" id="listenStop" ${listening || paused ? '' : 'disabled'}></button>
         <button type="button" class="danger" id="listenCancel"></button>
       </div>
     </div>
   `;
   const titleInput = document.getElementById('noteTitle') as HTMLInputElement;
   titleInput.placeholder = t.noteTitlePlaceholder;
-  titleInput.value = note.titleKey ? t[note.titleKey] || '' : (note.title ?? '');
-  titleInput.addEventListener('input', () => {
-    note.title = titleInput.value;
-    note.titleKey = undefined;
+  titleInput.value = note.title ?? '';
+  titleInput.addEventListener('change', () => {
+    const next = titleInput.value.trim();
+    note.title = next || null;
+    void pith.notes.rename(note.id, note.title).then(replaceNote).catch((error: unknown) => {
+      setMainError(apiMessage(error));
+    });
   });
   if (me) {
     const minutes = Math.floor(me.remainingSeconds / 60);
     $('listenQuota').textContent = t.remainingTime.replace('{minutes}', String(minutes));
   }
-  if (note.status === 'listening' && listenTimer == null) {
-    startListenClock();
-  }
-  $('listenStart').textContent = t.start;
   $('listenPause').textContent = t.pause;
   $('listenResume').textContent = t.resume;
   $('listenStop').textContent = t.stop;
   $('listenCancel').textContent = t.cancel;
-  $('listenStart').addEventListener('click', () => {
-    note.status = 'listening';
-    listenSeconds = 0;
-    startListenClock();
-    render();
-  });
   $('listenPause').addEventListener('click', () => {
-    note.status = 'paused';
-    stopListenClock();
-    render();
+    void pith.capture.pause().then(() => {
+      captureState = 'paused';
+      stopListenClock();
+      render();
+    }).catch((error: unknown) => setMainError(apiMessage(error)));
   });
   $('listenResume').addEventListener('click', () => {
-    note.status = 'listening';
-    startListenClock();
-    render();
+    void pith.capture.resume().then(() => {
+      captureState = 'listening';
+      if (heardSound) {
+        startListenClock();
+      }
+      render();
+    }).catch((error: unknown) => setMainError(apiMessage(error)));
   });
   $('listenStop').addEventListener('click', () => {
-    stopListenClock();
-    note.status = 'ready';
-    note.summaryKeys = ['mockBullet1', 'mockBullet2', 'mockBullet3'];
-    const typed = (note.title ?? '').trim();
-    if (!typed && !note.titleKey) {
-      note.title = t.mockBullet1;
-    }
-    view = { name: 'note', workspaceId, noteId };
-    render();
+    void (async () => {
+      try {
+        let durationSeconds = listenSeconds;
+        try {
+          const ended = await pith.capture.end();
+          durationSeconds = ended.durationSeconds;
+        } catch (error) {
+          const code = error instanceof Error ? error.message : '';
+          const stopped =
+            code.includes('empty') ||
+            code.includes('too_short') ||
+            code.includes('not_listening');
+          if (!stopped) {
+            throw error;
+          }
+        }
+        captureState = 'idle';
+        liveNoteId = null;
+        heardSound = false;
+        stopListenClock();
+        const saved = await pith.notes.stop(note.id, durationSeconds);
+        replaceNote(saved);
+        view = { name: 'note', workspaceId: saved.workspaceId, noteId: saved.id };
+        render();
+      } catch (error) {
+        setMainError(apiMessage(error));
+      }
+    })();
   });
   $('listenCancel').addEventListener('click', () => {
     if (!window.confirm(t.confirmCancelListen)) {
       return;
     }
-    stopListenClock();
-    notes = notes.filter((item) => item.id !== note.id);
-    view = { name: 'workspace', id: workspaceId };
-    render();
+    void (async () => {
+      if (liveNoteId === note.id) {
+        await abandonListen();
+      } else {
+        try {
+          await pith.notes.cancel(note.id);
+        } catch (error) {
+          setMainError(apiMessage(error));
+          return;
+        }
+        notes = notes.filter((item) => item.id !== note.id);
+      }
+      view = { name: 'workspace', id: workspaceId };
+      render();
+    })();
   });
 }
 
@@ -759,14 +910,27 @@ async function init(): Promise<void> {
   $('signIn').addEventListener('click', async () => {
     await pith.auth.login();
     await refreshMe();
+    try {
+      await reloadLists();
+    } catch (error) {
+      setMainError(apiMessage(error));
+    }
+    render();
   });
   $('signOut').addEventListener('click', async () => {
+    await abandonListen();
     await pith.auth.logout();
     await refreshMe();
-  });
-  $('homeBtn').addEventListener('click', () => {
+    await reloadLists();
     view = { name: 'home' };
     render();
+  });
+  $('homeBtn').addEventListener('click', () => {
+    void (async () => {
+      await abandonListen();
+      view = { name: 'home' };
+      render();
+    })();
   });
   $('profileBtn').addEventListener('click', () => {
     view = { name: 'profile' };
@@ -816,9 +980,20 @@ async function init(): Promise<void> {
       return;
     }
     setMainError('');
-    void pith.shell.openSpike().catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : '';
-      setMainError(message.includes('sign_in_required') ? t.signInRequired : t.errorGeneric);
+    void (async () => {
+      let workspace = recordingWorkspace();
+      if (!workspace) {
+        const listed = await pith.notes.listWorkspaces();
+        workspaces = listed;
+        workspace = listed[0] ?? null;
+      }
+      if (!workspace) {
+        setMainError(t.errorGeneric);
+        return;
+      }
+      await pith.shell.openSpike(workspace.id, workspace.name);
+    })().catch((error: unknown) => {
+      setMainError(apiMessage(error));
     });
   });
   $('confirmCancel').addEventListener('click', () => closeConfirm());
@@ -830,10 +1005,42 @@ async function init(): Promise<void> {
   });
   document.addEventListener('click', () => closeMenus());
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      void refreshMe();
+    if (document.visibilityState !== 'visible') {
+      return;
+    }
+    void (async () => {
+      await refreshMe();
+      if (liveNoteId) {
+        return;
+      }
+      try {
+        await reloadLists();
+        render();
+      } catch (error) {
+        setMainError(apiMessage(error));
+      }
+    })();
+  });
+  pith.capture.onLevels((levels) => {
+    const mic = document.getElementById('micLevel');
+    const system = document.getElementById('systemLevel');
+    if (mic) {
+      mic.style.width = `${Math.round(Math.min(1, levels.mic) * 100)}%`;
+    }
+    if (system) {
+      system.style.width = `${Math.round(Math.min(1, levels.system) * 100)}%`;
+    }
+    if (captureState === 'listening' && !heardSound && (levels.mic > 0 || levels.system > 0)) {
+      heardSound = true;
+      startListenClock();
     }
   });
+  try {
+    await reloadLists();
+    render();
+  } catch (error) {
+    setMainError(apiMessage(error));
+  }
 }
 
 function escapeHtml(value: string): string {

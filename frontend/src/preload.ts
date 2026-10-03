@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('pith', {
     resume: () => ipcRenderer.invoke('capture:resume'),
     stop: () => ipcRenderer.invoke('debug:stopAndTranscribe'),
     cancel: () => ipcRenderer.invoke('capture:cancel'),
+    end: (): Promise<{ durationSeconds: number }> => ipcRenderer.invoke('capture:end'),
     getState: (): Promise<CaptureState> => ipcRenderer.invoke('capture:getState'),
     resend: () => ipcRenderer.invoke('debug:resend'),
     hasLastMix: (): Promise<boolean> => ipcRenderer.invoke('debug:hasLastMix'),
@@ -55,8 +56,28 @@ contextBridge.exposeInMainWorld('pith', {
   permissions: {
     promptMicrophone: (): Promise<boolean> => ipcRenderer.invoke('permissions:microphone'),
   },
+  notes: {
+    listWorkspaces: () => ipcRenderer.invoke('notes:listWorkspaces'),
+    createWorkspace: (name: string) => ipcRenderer.invoke('notes:createWorkspace', name),
+    deleteWorkspace: (id: string) => ipcRenderer.invoke('notes:deleteWorkspace', id),
+    listNotes: (workspaceId: string) => ipcRenderer.invoke('notes:listNotes', workspaceId),
+    create: (workspaceId: string, title: string | null) =>
+      ipcRenderer.invoke('notes:create', workspaceId, title),
+    rename: (id: string, title: string | null) => ipcRenderer.invoke('notes:rename', id, title),
+    move: (id: string, workspaceId: string) => ipcRenderer.invoke('notes:move', id, workspaceId),
+    delete: (id: string) => ipcRenderer.invoke('notes:delete', id),
+    cancel: (id: string) => ipcRenderer.invoke('notes:cancel', id),
+    stop: (
+      id: string,
+      durationSeconds: number,
+      transcriptText?: string | null,
+      language?: 'en' | 'es' | null,
+    ) => ipcRenderer.invoke('notes:stop', id, durationSeconds, transcriptText, language),
+    retry: (id: string) => ipcRenderer.invoke('notes:retry', id),
+  },
   shell: {
-    openSpike: (): Promise<void> => ipcRenderer.invoke('shell:openSpike'),
+    openSpike: (workspaceId: string, workspaceName: string): Promise<void> =>
+      ipcRenderer.invoke('shell:openSpike', workspaceId, workspaceName),
     openNotepad: (): Promise<void> => ipcRenderer.invoke('shell:openNotepad'),
   },
 });

@@ -663,9 +663,39 @@ button.auth-link svg {
   margin: 8px 0 16px;
 }
 
+.listen-levels {
+  display: flex;
+  gap: 16px;
+  margin: 8px 0 4px;
+}
+
+.listen-levels > div {
+  flex: 1;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.level-track {
+  height: 6px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--line);
+}
+
+.level-fill {
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+}
+
 .hint {
   color: var(--muted);
   line-height: 1.45;
+}
+
+.transcript {
+  white-space: pre-wrap;
 }
 
 .error {

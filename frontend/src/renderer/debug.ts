@@ -29,6 +29,7 @@ function applyCopy(): void {
   $('backToNotepad').setAttribute('aria-label', t.home);
   $('spikeMore').setAttribute('aria-label', t.moreActions);
   $('moveToTrash').textContent = t.moveToTrash;
+  showWorkspaceName();
   const notes = document.getElementById('noteBody') as HTMLTextAreaElement;
   notes.setAttribute('aria-label', t.listenNotesLabel);
   notes.placeholder = t.listenNotesPlaceholder;
@@ -44,6 +45,44 @@ function renderInputDevice(): void {
 
 function noteBody(): HTMLTextAreaElement {
   return document.getElementById('noteBody') as HTMLTextAreaElement;
+}
+
+function recordingWorkspace(): { id: string; name: string } {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    id: params.get('workspaceId') ?? '',
+    name: params.get('workspaceName') ?? '',
+  };
+}
+
+function showWorkspaceName(): void {
+  const name = recordingWorkspace().name.trim();
+  const label = $('workspaceName');
+  label.textContent = name;
+  label.hidden = name.length === 0;
+}
+
+async function saveGeneratedNote(result: {
+  text: string;
+  language: Locale;
+  durationSeconds: number;
+}): Promise<void> {
+  let workspaceId = recordingWorkspace().id;
+  if (!workspaceId) {
+    const listed = await pith.notes.listWorkspaces();
+    workspaceId = listed[0]?.id ?? '';
+  }
+  if (!workspaceId) {
+    throw new Error('notes_workspace');
+  }
+  const title = (document.getElementById('noteTitle') as HTMLInputElement).value.trim();
+  const created = await pith.notes.create(workspaceId, title || null);
+  try {
+    await pith.notes.stop(created.id, result.durationSeconds, noteBody().value.trim(), result.language);
+  } catch (error) {
+    await pith.notes.cancel(created.id).catch(() => undefined);
+    throw error;
+  }
 }
 
 function applyGeneratedText(transcript: string): void {
@@ -499,9 +538,11 @@ async function init(): Promise<void> {
         applyGeneratedText(result.text);
         freezeTimer(recordedSeconds());
         applyLevels({ mic: 0, system: 0 });
+        await saveGeneratedNote(result);
       } catch (error) {
-        captureFinished = false;
-        freezeTimer(recordedSeconds());
+        if (!captureFinished) {
+          freezeTimer(recordedSeconds());
+        }
         throw error;
       }
     });

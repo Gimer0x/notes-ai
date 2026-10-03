@@ -8,6 +8,7 @@ import { requestScreenCaptureAccess } from './capture/helper-client';
 import { NativeCaptureService } from './capture/native-capture.service';
 import { backendUrl, captureSpikeKey, loadFrontendEnv, websiteUrl } from './env';
 import { resetSessionTrace, trace, writeSessionTrace, type TraceSegment } from './debug/session-trace';
+import { createNotesApi } from './notes/notes-api';
 import { SpikeClient, SpikeRequestError } from './spike/spike-client';
 import en from './i18n/en.json';
 import es from './i18n/es.json';
@@ -18,6 +19,7 @@ const capture = new NativeCaptureService();
 capture.subscribeHelperLog((chunk) => trace('helper', chunk));
 const spike = new SpikeClient(backendUrl(), captureSpikeKey());
 const auth = new AuthService();
+const notesApi = createNotesApi(() => auth.getAccessToken());
 let lastMix: Buffer | null = null;
 let lastMic: Buffer | null = null;
 let lastSystem: Buffer | null = null;
@@ -175,7 +177,7 @@ function createWindow(): void {
   void mainWindow.loadFile(rendererFile('shell.html'));
 }
 
-ipcMain.handle('shell:openSpike', async () => {
+ipcMain.handle('shell:openSpike', async (_event, workspaceId: string, workspaceName: string) => {
   const user = await signedInUser();
   if (!user) {
     throw new Error('sign_in_required');
@@ -188,7 +190,11 @@ ipcMain.handle('shell:openSpike', async () => {
   }
   if (mainWindow) {
     void mainWindow.loadFile(rendererFile('index.html'), {
-      query: { note: String(Date.now()) },
+      query: {
+        note: String(Date.now()),
+        workspaceId: workspaceId ?? '',
+        workspaceName: workspaceName ?? '',
+      },
     });
   }
 });
@@ -259,6 +265,44 @@ ipcMain.handle('capture:cancel', async () => {
   beginNote();
   await capture.cancel();
 });
+ipcMain.handle('capture:end', async () => {
+  const captured = await capture.stop();
+  await unlink(captured.filePath).catch(() => undefined);
+  if (captured.micFilePath) {
+    await unlink(captured.micFilePath).catch(() => undefined);
+  }
+  if (captured.systemFilePath) {
+    await unlink(captured.systemFilePath).catch(() => undefined);
+  }
+  const durationSeconds = Number(captured.durationSeconds);
+  return { durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : 0 };
+});
+ipcMain.handle('notes:listWorkspaces', () => notesApi.listWorkspaces());
+ipcMain.handle('notes:createWorkspace', (_event, name: string) => notesApi.createWorkspace(name));
+ipcMain.handle('notes:deleteWorkspace', (_event, id: string) => notesApi.deleteWorkspace(id));
+ipcMain.handle('notes:listNotes', (_event, workspaceId: string) => notesApi.listNotes(workspaceId));
+ipcMain.handle('notes:create', (_event, workspaceId: string, title: string | null) =>
+  notesApi.createNote(workspaceId, title),
+);
+ipcMain.handle('notes:rename', (_event, id: string, title: string | null) =>
+  notesApi.renameNote(id, title),
+);
+ipcMain.handle('notes:move', (_event, id: string, workspaceId: string) =>
+  notesApi.moveNote(id, workspaceId),
+);
+ipcMain.handle('notes:delete', (_event, id: string) => notesApi.deleteNote(id));
+ipcMain.handle('notes:cancel', (_event, id: string) => notesApi.cancelNote(id));
+ipcMain.handle(
+  'notes:stop',
+  (
+    _event,
+    id: string,
+    durationSeconds: number,
+    transcriptText?: string | null,
+    language?: 'en' | 'es' | null,
+  ) => notesApi.stopNote(id, durationSeconds, transcriptText, language),
+);
+ipcMain.handle('notes:retry', (_event, id: string) => notesApi.retryNote(id));
 ipcMain.handle('capture:getState', () => capture.getState());
 ipcMain.handle('debug:stopAndTranscribe', async () => {
   const captured = await capture.stop();

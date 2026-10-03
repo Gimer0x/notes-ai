@@ -5,7 +5,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Pool, type QueryResult, type QueryResultRow } from 'pg';
+import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg';
 import { SCHEMA_STATEMENTS, SEED_PLANS_SQL } from './schema';
 
 @Injectable()
@@ -50,4 +50,31 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
     }
     return this.pool.query<T>(text, params);
   }
+
+  async transaction<T>(
+    run: (query: DbService['query']) => Promise<T>,
+  ): Promise<T> {
+    if (!this.pool) {
+      throw new Error('database is not connected');
+    }
+    const client = await this.pool.connect();
+    const query = clientQuery(client);
+    try {
+      await client.query('BEGIN');
+      const result = await run(query);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+}
+
+function clientQuery(
+  client: PoolClient,
+): DbService['query'] {
+  return (text, params) => client.query(text, params);
 }

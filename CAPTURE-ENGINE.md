@@ -33,7 +33,7 @@ Already-captured samples survive a Bluetooth connect or disconnect. The hole lef
 | Electron | `frontend/src/capture/helper-client.ts`, `native-capture.service.ts` | Spawns the helper and speaks the JSON contract. Helper stderr is copied into the debug log. |
 | Slices | `frontend/src/capture/segment-tracks.ts` | After Generate, labels each 0.2 s window `mic`, `system`, or `mix`. |
 | Debug log | `frontend/src/debug/session-trace.ts` | Temporary file written after Generate. Collects helper, frontend, and backend lines. |
-| New note UI | `frontend/src/renderer/debug.ts`, `frontend/src/main.ts` | **+ New note** is what opens the hardware. |
+| New note UI | `frontend/src/renderer/debug.ts`, `frontend/src/main.ts` | **+ New note** opens this screen and starts the hardware. |
 
 The renderer never talks to Core Audio. It calls `CaptureService` in the Electron main process. That process owns the helper.
 
@@ -110,7 +110,7 @@ The notepad does **not** open them. They stay off until **+ New note**.
 ### 6.1 New note opens them
 
 1. `shell:openSpike` in `main.ts` calls `cancel`. On the notepad the helper is idle, so this logs `capture cancelled; hardware idle` and does not touch Core Audio.
-2. The spike page loads. `debug.ts` calls `start` directly, so the first buffers are part of the recording.
+2. The note screen loads. `debug.ts` calls `start` directly, so the first buffers are part of the recording.
 3. `start` sets `recording = true` and a host-time origin, then `openHardware`:
    - Request microphone permission if this is the first open.
    - Call `CGRequestScreenCaptureAccess()` again so a tap started after a later grant is allowed. The first prompt is at Electron launch and does not open the mic or the tap. `Info.plist` also has `NSAudioCaptureUsageDescription` for the system-audio capture prompt.
@@ -151,7 +151,7 @@ If the mix is empty or shorter than 0.5 seconds, the buffers are cleared, `stopR
 
 `cancel` drops the session, deletes temp WAVs, and clears the PCM. If `hardwareOn` is true it calls the same `closeHardware`. If the helper was already idle it does not call into Core Audio.
 
-Home (`shell:openNotepad`) and Move to trash both cancel. A new **+ New note** also cancels first, which is a no-op when the notepad has already released the hardware, and then the spike page opens it again.
+Home (`shell:openNotepad`) and Move to trash both cancel. A new **+ New note** also cancels first, which is a no-op when the notepad has already released the hardware, and then the note screen opens it again.
 
 Quitting the app calls `capture.dispose()`, which cancels and then kills the helper process. Any device the helper still held is released when the process exits.
 

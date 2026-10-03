@@ -205,7 +205,7 @@ Resolve the active window from plan rules above (free 30-day slices vs Stripe mo
 
 Implement **in this order**. Each step must compile, use `.env`, follow SOLID, update `README.md`, and **add or extend automated tests when the step introduces new behavior** (API, quota rules, i18n keys). Run the full suite (`npm test` from the repo root) before treating the step as done. Do not start step N+1 until step N works.
 
-**Status:** Steps 1–11 are implemented. **Step 12a** (Electron notepad shell mockups) is implemented. Automated tests (Step 11) run locally and on GitHub push/PR. Next is UX review of the mock shell, then **Step 12b** (wire workspaces, notes, and capture).
+**Status:** Steps 1–11, **12a**, and **12b** are implemented. Automated tests (Step 11) run locally and on GitHub push/PR. Next is **Step 13** (WAV upload, transcript, and summary).
 
 ### Module boundaries
 
@@ -627,4 +627,4 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 
 ## Still open
 
-None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. **Step 12a** (Electron notepad shell mockups) is in the app. Wire workspaces, notes, and capture in **Step 12b** after the UX is accepted.
+None. Mixed-language meetings, EN/ES UI, and the spike key are locked in **Decisions** above. **Step 12b** saves workspaces and notes and records from the notepad. **Step 13** adds the transcript and summary.

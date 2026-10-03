@@ -185,6 +185,125 @@ describe('API contracts (e2e)', () => {
       .expect(401);
   });
 
+  it('workspaces and notes follow the list, delete, move, and rename rules', async () => {
+    const user = await insertUser(app, {
+      email: 'notes@example.com',
+      subject: 'sub-notes',
+    });
+    const token = signUserToken(user.id, JWT_SECRET);
+    const http = request(app.getHttpServer());
+
+    await http.get('/workspaces').expect(401);
+    await http.post('/workspaces').send({ name: 'Client' }).expect(401);
+
+    const listed = await http
+      .get('/workspaces')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(listed.body).toHaveLength(1);
+    expect(listed.body[0].name).toBe('Personal');
+    const personalId = listed.body[0].id as string;
+
+    await http
+      .delete(`/workspaces/${personalId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(409);
+
+    const created = await http
+      .post('/workspaces')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: '  Client A  ' })
+      .expect(201);
+    const clientId = created.body.id as string;
+    expect(created.body.name).toBe('Client A');
+
+    const note = await http
+      .post(`/workspaces/${personalId}/notes`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ title: 'Weekly sync' })
+      .expect(201);
+    expect(note.body).toMatchObject({
+      workspaceId: personalId,
+      title: 'Weekly sync',
+      status: 'listening',
+      summaryText: [],
+      transcriptText: null,
+    });
+    const noteId = note.body.id as string;
+
+    const notes = await http
+      .get(`/workspaces/${personalId}/notes`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(notes.body).toHaveLength(1);
+
+    await http
+      .delete(`/workspaces/${personalId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(409);
+
+    await http
+      .delete(`/workspaces/${clientId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(204);
+
+    const renamed = await http
+      .patch(`/notes/${noteId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ title: 'Renamed sync' })
+      .expect(200);
+    expect(renamed.body.title).toBe('Renamed sync');
+
+    const second = await http
+      .post('/workspaces')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Client B' })
+      .expect(201);
+    const moved = await http
+      .post(`/notes/${noteId}/move`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ workspaceId: second.body.id })
+      .expect(200);
+    expect(moved.body.workspaceId).toBe(second.body.id);
+
+    const db = app.get(DbService);
+    await db.query(`UPDATE notes SET status = 'processing' WHERE id = $1`, [noteId]);
+    await http
+      .delete(`/notes/${noteId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(409);
+    await db.query(`UPDATE notes SET status = 'failed', transcript_text = NULL WHERE id = $1`, [
+      noteId,
+    ]);
+    await http
+      .post(`/notes/${noteId}/retry`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(409);
+    await db.query(`UPDATE notes SET status = 'listening' WHERE id = $1`, [noteId]);
+    const stopped = await http
+      .post(`/notes/${noteId}/stop`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        durationSeconds: 42.2,
+        transcriptText: 'Hello there',
+        language: 'en',
+      })
+      .expect(200);
+    expect(stopped.body.status).toBe('ready');
+    expect(stopped.body.durationSeconds).toBe(42);
+    expect(stopped.body.transcriptText).toBe('Hello there');
+    expect(stopped.body.language).toBe('en');
+
+    await http
+      .delete(`/notes/${noteId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(204);
+    await http
+      .delete(`/workspaces/${second.body.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(204);
+  });
+
   it('does not register POST /spike/transcribe outside development', async () => {
     await request(app.getHttpServer())
       .post('/spike/transcribe')

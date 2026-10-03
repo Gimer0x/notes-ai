@@ -7,6 +7,7 @@ import { ConfigApiModule } from './config/config-api.module';
 import { DbModule } from './db/db.module';
 import { HealthModule } from './health/health.module';
 import { MeModule } from './me/me.module';
+import { NotesModule } from './notes/notes.module';
 import { AuthModule } from './auth/auth.module';
 import { SpikeModule } from './spike/spike.module';
 import { TranscribeModule } from './transcribe/transcribe.module';
@@ -23,6 +24,7 @@ loadEnv({ path: envFile });
     AuthModule,
     MeModule,
     BillingModule,
+    NotesModule,
     TranscribeModule,
     ...(spikeEnabled() ? [SpikeModule] : []),
   ],

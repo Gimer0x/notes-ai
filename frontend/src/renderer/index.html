@@ -46,8 +46,22 @@
       .spike-bar {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        gap: 10px;
         margin: 0 0 12px;
+      }
+      .spike-workspace {
+        margin: 0;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.95rem;
+        font-weight: 500;
+        line-height: 1.2;
+        color: var(--ink);
+      }
+      .spike-bar .note-menu {
+        margin-left: auto;
       }
       .spike-copy {
         flex: 1;
@@ -58,8 +72,10 @@
       }
       .home-btn {
         display: inline-flex;
+        flex: 0 0 auto;
         align-items: center;
         gap: 2px;
+        width: auto;
         padding: 5px 11px 5px 8px;
         background: transparent;
         border: 1px solid var(--line);
@@ -361,6 +377,7 @@
             />
           </svg>
         </button>
+        <p id="workspaceName" class="spike-workspace"></p>
         <div class="note-menu" id="spikeMenu">
           <button type="button" class="note-more" id="spikeMore" aria-haspopup="menu" aria-expanded="false"></button>
           <div class="note-menu-pop" id="spikeMenuPop" hidden role="menu">
