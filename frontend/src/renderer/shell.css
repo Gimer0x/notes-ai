@@ -684,6 +684,36 @@ button.auth-link svg {
   line-height: 1.5;
 }
 
+.summary-heading {
+  margin: 18px 0 8px;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.summary-heading:first-child {
+  margin-top: 4px;
+}
+
+.summary-list,
+.summary-steps {
+  margin: 0 0 8px;
+  padding-left: 1.25rem;
+  line-height: 1.5;
+}
+
+.summary-list {
+  list-style: disc;
+}
+
+.summary-list li.nested,
+.summary-steps li.nested {
+  margin-left: 1rem;
+}
+
+.summary-steps {
+  list-style: decimal;
+}
+
 button.text-btn {
   width: auto;
   margin: 4px 0 0;

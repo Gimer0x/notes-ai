@@ -29,7 +29,12 @@ export class OpenAiSummaryService extends SummaryService {
         messages: [
           {
             role: 'system',
-            content: `You write meeting notes. Reply with 3 to 6 short bullet lines and nothing else. Each line is one decision, fact, or next step. No title and no preamble. Write in ${spoken}.`,
+            content: `You write a structured meeting summary in ${spoken}. Use only this layout:
+- Each section starts with a heading line: "# Section title"
+- Under a heading, each point is a bullet line that starts with "• "
+- Indent a sub-point with two spaces, still starting with "• "
+- When one point has scenarios or steps, list them underneath as indented lines "1. ", "2. ", "3. "
+No preamble, no dash bullets, and no text before the first heading. Cover the decisions, facts, and next steps in as many sections as the meeting needs.`,
           },
           {
             role: 'user',

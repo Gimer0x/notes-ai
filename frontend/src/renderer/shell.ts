@@ -76,7 +76,7 @@ function noteTitle(note: Note): string {
 }
 
 function stripNumeration(line: string): string {
-  let text = line.trim();
+  let text = line.trim().replace(/^#+\s*/, '');
   let previous = '';
   while (text && text !== previous) {
     previous = text;
@@ -751,6 +751,53 @@ function renderNoteFeed(list: HTMLElement, items: Note[], showWorkspace: boolean
   }
 }
 
+function renderSummary(lines: string[]): string {
+  type Kind = 'h' | 'ul' | 'ol';
+  const items = lines.map((line) => {
+    const indent = line.match(/^ */)?.[0].length ?? 0;
+    const depth = Math.min(3, Math.floor(indent / 2));
+    const text = line.trim();
+    if (text.startsWith('#')) {
+      return { kind: 'h' as Kind, depth: 0, text: text.replace(/^#+\s*/, '') };
+    }
+    const numbered = text.match(/^\d+[.)]\s+(.*)$/);
+    if (numbered) {
+      return { kind: 'ol' as Kind, depth, text: numbered[1] };
+    }
+    const bullet = text.match(/^[•\-*]\s+(.*)$/);
+    return { kind: 'ul' as Kind, depth, text: bullet ? bullet[1] : text };
+  });
+  let html = '';
+  let list: 'ul' | 'ol' | null = null;
+  const closeList = (): void => {
+    if (list === 'ul') {
+      html += '</ul>';
+    } else if (list === 'ol') {
+      html += '</ol>';
+    }
+    list = null;
+  };
+  for (const item of items) {
+    if (!item.text) {
+      continue;
+    }
+    if (item.kind === 'h') {
+      closeList();
+      html += `<h2 class="summary-heading">${escapeHtml(item.text)}</h2>`;
+      continue;
+    }
+    if (list !== item.kind) {
+      closeList();
+      list = item.kind;
+      html += list === 'ul' ? '<ul class="summary-list">' : '<ol class="summary-steps">';
+    }
+    const nested = item.depth > 0 ? ' class="nested"' : '';
+    html += `<li${nested}>${escapeHtml(item.text)}</li>`;
+  }
+  closeList();
+  return html;
+}
+
 function renderNote(workspaceId: string, noteId: string): void {
   const note = notes.find((item) => item.id === noteId);
   if (!note) {
@@ -770,7 +817,7 @@ function renderNote(workspaceId: string, noteId: string): void {
   $('view').innerHTML = `
     <div class="detail">
       ${note.status === 'ready' ? '' : `<span class="status-pill ${note.status}">${statusLabel(note.status)}</span>`}
-      ${lines.length ? `<ol>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ol>` : `<p class="empty">${t.noSummaryYet}</p>`}
+      ${lines.length ? renderSummary(lines) : `<p class="empty">${t.noSummaryYet}</p>`}
       <div class="detail-actions">
         <label for="moveNote">${t.moveNote}</label>
         <select id="moveNote">${options}</select>

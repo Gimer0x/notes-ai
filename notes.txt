@@ -1,5 +1,3 @@
-
-
 psql postgres://localhost:5432/pith -c 'SELECT email, plan_code, google_subject, created_at FROM users;'
 
 stripe listen --forward-to localhost:3000/billing/webhook
@@ -21,6 +19,10 @@ Check when this should be checked:
 
 "macOS will ask for Microphone and Screen Recording. While developing, the app may appear as Electron (or Pith Capture Helper). Screen Recording is only used to hear other apps (Zoom, Meet, Teams), not to save video or screenshots."
 
-Bugs:
+Next steps:
 
-1. If user press home in the capture window, the app crashes.
+1. Make sure to add the user's notes to the transcript bubbles.
+2. Add a "plain" otion to the transcript bubbles.
+3. Give the possibility to the user to add files to the notes.
+4. Validar permisos de la app (mic, screen recording, etc.)
+5. Agregar la opción de buscar entre las transcripciones e interactuar con la IA. 
