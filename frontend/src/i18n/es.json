@@ -28,6 +28,7 @@
   "errorMacosOnly": "La captura en este MVP es solo para macOS.",
   "errorNoKey": "Falta CAPTURE_SPIKE_KEY en frontend/.env (el mismo valor que en backend/.env).",
   "errorEmpty": "No se capturó audio. Pulsa Iniciar, habla y luego Detener.",
+  "summaryFailed": "No se pudo escribir el resumen. Abre la nota e inténtalo de nuevo.",
   "errorTooShort": "El audio grabado no es suficiente. Sigue escuchando al menos {seconds} segundos y luego pulsa Generar.",
   "errorNotListening": "No había una grabación en curso. Abre una nota nueva y luego pulsa Generar.",
   "errorFileTooLarge": "La grabación es demasiado larga para subirla de una vez. Reinicia el backend (ahora parte las mezclas largas) e inténtalo de nuevo.",

@@ -20,12 +20,60 @@ export class TestSummaryService extends SummaryService {
   }
 }
 
+const MAX_SECTIONS = 8;
+
 export function parseSummaryBullets(text: string): string[] {
-  return text
+  const lines = text
     .split('\n')
     .map((line) => normalizeSummaryLine(line.replace(/\t/g, '  ')))
     .filter((line) => line.length > 0)
     .slice(0, 60);
+  return arrangeSections(lines).flat();
+}
+
+function arrangeSections(lines: string[]): string[][] {
+  const sections: string[][] = [];
+  let current: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith('# ') && current.length > 0) {
+      sections.push(current);
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length > 0) {
+    sections.push(current);
+  }
+  const closingAt = sections.findIndex((section) => isClosingSection(section[0] ?? ''));
+  let ordered = sections;
+  if (closingAt >= 0 && closingAt < sections.length - 1) {
+    const closing = sections[closingAt];
+    ordered = [
+      ...sections.slice(0, closingAt),
+      ...sections.slice(closingAt + 1),
+      closing,
+    ];
+  }
+  if (ordered.length <= MAX_SECTIONS) {
+    return ordered;
+  }
+  const last = ordered[ordered.length - 1];
+  if (last && isClosingSection(last[0] ?? '')) {
+    return [...ordered.slice(0, MAX_SECTIONS - 1), last];
+  }
+  return ordered.slice(0, MAX_SECTIONS);
+}
+
+function isClosingSection(heading: string): boolean {
+  const title = heading.replace(/^#\s+/, '').trim().toLowerCase();
+  return (
+    title === 'conclusions' ||
+    title === 'conclusiones' ||
+    title === 'next steps' ||
+    title === 'próximos pasos' ||
+    title === 'proximos pasos'
+  );
 }
 
 function normalizeSummaryLine(line: string): string {

@@ -8,6 +8,7 @@ import {
 import { BillingService } from '../billing/billing.service';
 import { DbService } from '../db/db.service';
 import { SummaryService, type MeetingLanguage } from '../summary/summary.service';
+import { cleanSpeech } from './clean-speech';
 import { toNote, type NoteResponse, type NoteRow, type TranscriptTurn } from './note.types';
 import { WorkspacesService } from './workspaces.service';
 
@@ -241,7 +242,7 @@ function cleanTurns(value: TranscriptTurn[] | null | undefined): TranscriptTurn[
     if (!item || (item.source !== 'mic' && item.source !== 'system' && item.source !== 'mix')) {
       continue;
     }
-    const text = typeof item.text === 'string' ? item.text.trim() : '';
+    const text = typeof item.text === 'string' ? cleanSpeech(item.text) : '';
     if (!text) {
       continue;
     }

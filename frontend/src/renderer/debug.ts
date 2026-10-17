@@ -100,7 +100,7 @@ async function saveGeneratedNote(
     turns: { source: 'mic' | 'system' | 'mix'; startSec: number; endSec: number; text: string }[];
   },
   typedNotes: string,
-): Promise<void> {
+) {
   let workspaceId = recordingWorkspace().id;
   if (!workspaceId) {
     const listed = await pith.notes.listWorkspaces();
@@ -110,15 +110,19 @@ async function saveGeneratedNote(
     throw new Error('notes_workspace');
   }
   const title = (document.getElementById('noteTitle') as HTMLInputElement).value.trim();
-  const transcript = [typedNotes.trim(), result.text.trim()].filter((part) => part.length > 0).join('\n\n');
+  const speech = cleanSpeech(result.text);
+  const turns = result.turns
+    .map((turn) => ({ ...turn, text: cleanSpeech(turn.text) }))
+    .filter((turn) => turn.text.length > 0);
+  const transcript = [typedNotes.trim(), speech].filter((part) => part.length > 0).join('\n\n');
   const created = await pith.notes.create(workspaceId, title || null);
   try {
-    await pith.notes.stop(
+    return await pith.notes.stop(
       created.id,
       result.durationSeconds,
       transcript,
       result.language,
-      result.turns,
+      turns,
     );
   } catch (error) {
     await pith.notes.cancel(created.id).catch(() => undefined);
@@ -126,14 +130,58 @@ async function saveGeneratedNote(
   }
 }
 
-function applyGeneratedText(transcript: string): void {
-  const typed = noteBody().value.trim();
-  const speech = transcript.trim() ? transcript.trim() : t.noSpeech;
+function showSummary(lines: string[]): void {
+  const blocks: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('#')) {
+      if (blocks.length > 0) {
+        blocks.push('');
+      }
+      blocks.push(trimmed.replace(/^#+\s*/, ''));
+    } else {
+      blocks.push(line.trimEnd());
+    }
+  }
   const body = noteBody();
-  const block = `${t.transcriptHeading}\n\n${speech}`;
-  body.value = typed ? `${t.myNotesHeading}\n\n${typed}\n\n${block}` : block;
+  body.value = blocks.join('\n').trim();
   body.scrollTop = 0;
   body.setSelectionRange(0, 0);
+}
+
+function cleanSpeech(value: string): string {
+  const prompts = [
+    'Transcribe all speech in this application playback from the beginning. Ignore trailing silence. The language may be English or Spanish.',
+    'Transcribe the microphone speech from the beginning to the end. The language may be English or Spanish.',
+    'Transcribe every spoken word from the start of this clip to the end. The audio may include English and Spanish, app playback, and a microphone.',
+  ];
+  let text = value;
+  for (const prompt of prompts) {
+    const escaped = prompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+    text = text.replace(new RegExp(escaped, 'ig'), ' ');
+  }
+  text = text.replace(/\[[^\]\n]{0,48}\]/g, ' ').replace(/[♪♫♬]+/g, ' ');
+  const words = text
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => {
+      const letters = token.replace(/[^\p{L}]/gu, '');
+      if (!letters) {
+        return false;
+      }
+      if (/^(.)\1{3,}$/iu.test(letters)) {
+        return false;
+      }
+      if (letters.length >= 5 && !/[aeiouáéíóúüàèìòùâêîôûäëïöüy]/i.test(letters)) {
+        return false;
+      }
+      return true;
+    });
+  return words
+    .join(' ')
+    .replace(/\s+([.,;:!?])/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function closeSpikeMenu(): void {
@@ -207,8 +255,10 @@ function setError(code: string): void {
           ? t.errorMacosOnly
           : code === 'no_spike_key'
             ? t.errorNoKey
-            : code === 'empty'
+              : code === 'empty'
               ? t.errorEmpty
+              : code === 'summary_failed'
+                ? t.summaryFailed
               : code === 'too_short'
                 ? t.errorTooShort.replace(
                     '{seconds}',
@@ -586,10 +636,14 @@ async function init(): Promise<void> {
       try {
         const result = await pith.capture.stop();
         captureFinished = true;
-        applyGeneratedText(result.text);
         freezeTimer(recordedSeconds());
         applyLevels({ mic: 0, system: 0 });
-        await saveGeneratedNote(result, typedNotes);
+        const saved = await saveGeneratedNote(result, typedNotes);
+        if (saved.summaryText.length > 0) {
+          showSummary(saved.summaryText);
+        } else {
+          setError('summary_failed');
+        }
       } catch (error) {
         if (!captureFinished) {
           freezeTimer(recordedSeconds());

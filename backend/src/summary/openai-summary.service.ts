@@ -21,6 +21,8 @@ export class OpenAiSummaryService extends SummaryService {
     }
     const model = this.config.get<string>('OPENAI_SUMMARY_MODEL')?.trim() || DEFAULT_MODEL;
     const spoken = language === 'es' ? 'Spanish' : 'English';
+    const closing = language === 'es' ? 'Conclusiones' : 'Conclusions';
+    const steps = language === 'es' ? 'Próximos pasos' : 'Next steps';
     const openai = new OpenAI({ apiKey });
     try {
       const completion = await openai.chat.completions.create({
@@ -34,7 +36,9 @@ export class OpenAiSummaryService extends SummaryService {
 - Under a heading, each point is a bullet line that starts with "• "
 - Indent a sub-point with two spaces, still starting with "• "
 - When one point has scenarios or steps, list them underneath as indented lines "1. ", "2. ", "3. "
-No preamble, no dash bullets, and no text before the first heading. Cover the decisions, facts, and next steps in as many sections as the meeting needs.`,
+No preamble, no dash bullets, and no text before the first heading.
+Use at most 8 sections, including the last one. Merge related ideas instead of adding another section.
+The last section is always "${closing}" or "${steps}". Use "${steps}" when the meeting produced follow-up actions. Otherwise use "${closing}".`,
           },
           {
             role: 'user',
