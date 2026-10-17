@@ -7,4 +7,13 @@ describe('cleanSpeech', () => {
     );
     expect(cleaned).toBe('Hola hola.');
   });
+
+  it('drops a lone accented letter and characters from other writing systems', () => {
+    expect(cleanSpeech('É')).toBe('');
+    expect(cleanSpeech('베')).toBe('');
+    expect(cleanSpeech('pero no tanto. É Creo que sí. 베 Pero híjole.')).toBe(
+      'pero no tanto. Creo que sí. Pero híjole.',
+    );
+    expect(cleanSpeech('A y o I Éxito')).toBe('A y o I Éxito');
+  });
 });

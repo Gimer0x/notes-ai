@@ -751,6 +751,87 @@ function renderNoteFeed(list: HTMLElement, items: Note[], showWorkspace: boolean
   }
 }
 
+let copyTimer: number | null = null;
+
+function summaryPlainText(lines: string[]): string {
+  const blocks: string[] = [];
+  let numbered = false;
+  let step = 0;
+  for (const line of lines) {
+    const indent = line.match(/^ */)?.[0].length ?? 0;
+    const depth = Math.min(3, Math.floor(indent / 2));
+    const text = line.trim();
+    if (!text) {
+      continue;
+    }
+    if (text.startsWith('#')) {
+      numbered = false;
+      step = 0;
+      if (blocks.length > 0) {
+        blocks.push('');
+      }
+      blocks.push(text.replace(/^#+\s*/, ''));
+      continue;
+    }
+    const stepMatch = text.match(/^\d+[.)]\s+(.*)$/);
+    const pad = '  '.repeat(depth);
+    if (stepMatch) {
+      if (!numbered) {
+        numbered = true;
+        step = 0;
+      }
+      step += 1;
+      blocks.push(`${pad}${step}. ${stepMatch[1]}`);
+      continue;
+    }
+    numbered = false;
+    const bullet = text.match(/^[•\-*]\s+(.*)$/);
+    blocks.push(`${pad}• ${bullet ? bullet[1] : text}`);
+  }
+  return blocks.join('\n').trim();
+}
+
+function writeClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text).catch(() => copyWithSelection(text));
+  }
+  copyWithSelection(text);
+  return Promise.resolve();
+}
+
+function bindCopy(text: string, label: string): void {
+  const copy = $('copySummary') as HTMLButtonElement;
+  if (copyTimer !== null) {
+    window.clearTimeout(copyTimer);
+    copyTimer = null;
+  }
+  copy.hidden = text.trim().length === 0;
+  copy.classList.remove('copied');
+  copy.setAttribute('aria-label', label);
+  copy.onclick = () => {
+    void writeClipboard(text).then(() => {
+      copy.classList.add('copied');
+      copy.setAttribute('aria-label', t.copiedSummary);
+      copyTimer = window.setTimeout(() => {
+        copy.classList.remove('copied');
+        copy.setAttribute('aria-label', label);
+      }, 1500);
+    });
+  };
+}
+
+function copyWithSelection(text: string): void {
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.append(area);
+  area.select();
+  document.execCommand('copy');
+  area.remove();
+}
+
 function renderSummary(lines: string[]): string {
   type Kind = 'h' | 'ul' | 'ol';
   const items = lines.map((line) => {
@@ -814,17 +895,20 @@ function renderNote(workspaceId: string, noteId: string): void {
     )
     .join('');
   const hasTranscript = note.transcriptTurns.length > 0 || Boolean(note.transcriptText?.trim());
+  const move = $('noteMove');
+  move.hidden = false;
+  move.innerHTML = `
+    <label for="moveNote">${t.moveNote}</label>
+    <select id="moveNote">${options}</select>
+  `;
   $('view').innerHTML = `
     <div class="detail">
       ${note.status === 'ready' ? '' : `<span class="status-pill ${note.status}">${statusLabel(note.status)}</span>`}
       ${lines.length ? renderSummary(lines) : `<p class="empty">${t.noSummaryYet}</p>`}
-      <div class="detail-actions">
-        <label for="moveNote">${t.moveNote}</label>
-        <select id="moveNote">${options}</select>
-        ${note.status === 'failed' ? `<button type="button" id="retryNote"></button>` : ''}
-      </div>
+      ${note.status === 'failed' ? `<div class="detail-actions"><button type="button" id="retryNote"></button></div>` : ''}
     </div>
   `;
+  bindCopy(summaryPlainText(lines), t.copySummary);
   const showTranscript = $('showTranscript') as HTMLButtonElement;
   showTranscript.hidden = !hasTranscript;
   showTranscript.textContent = t.showTranscript;
@@ -860,14 +944,44 @@ function renderNote(workspaceId: string, noteId: string): void {
 }
 
 function transcriptTurns(note: Note): TranscriptTurn[] {
-  if (note.transcriptTurns.length > 0) {
-    return note.transcriptTurns;
-  }
-  const text = note.transcriptText?.trim() ?? '';
-  if (!text) {
-    return [];
-  }
-  return [{ source: 'mix', startSec: 0, endSec: note.durationSeconds ?? 0, text }];
+  const source =
+    note.transcriptTurns.length > 0
+      ? note.transcriptTurns
+      : note.transcriptText?.trim()
+        ? [{ source: 'mix' as const, startSec: 0, endSec: note.durationSeconds ?? 0, text: note.transcriptText.trim() }]
+        : [];
+  return source
+    .map((turn) => ({ ...turn, text: cleanSpeech(turn.text) }))
+    .filter((turn) => turn.text.length > 0);
+}
+
+function cleanSpeech(value: string): string {
+  let text = value.replace(/\[[^\]\n]{0,48}\]/g, ' ').replace(/[♪♫♬]+/g, ' ');
+  const words = text
+    .split(/\s+/)
+    .map((token) => token.trim().replace(/[^\p{Script=Latin}\p{N}.,;:!?¿¡'"()\-]/gu, ''))
+    .filter((token) => {
+      const letters = token.replace(/[^\p{L}]/gu, '');
+      const digits = token.replace(/[^\p{N}]/gu, '');
+      if (!letters) {
+        return digits.length > 0;
+      }
+      if (/^(.)\1{3,}$/iu.test(letters)) {
+        return false;
+      }
+      if (letters.length === 1 && !/^[aeiouy]$/i.test(letters)) {
+        return false;
+      }
+      if (letters.length >= 5 && !/[aeiouáéíóúüàèìòùâêîôûäëïöüy]/i.test(letters)) {
+        return false;
+      }
+      return true;
+    });
+  return words
+    .join(' ')
+    .replace(/\s+([.,;:!?])/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function formatTurnTime(seconds: number): string {
@@ -910,6 +1024,7 @@ function renderTranscript(workspaceId: string, noteId: string): void {
     view = { name: 'note', workspaceId, noteId };
     render();
   };
+  bindCopy(turns.map((turn) => turn.text.trim()).filter((text) => text.length > 0).join('\n\n'), t.copyTranscript);
 }
 
 function renderListen(workspaceId: string, noteId: string): void {
@@ -1055,6 +1170,14 @@ function showNoteWhen(): void {
   const noteId =
     view.name === 'note' || view.name === 'transcript' ? view.noteId : null;
   const note = noteId ? notes.find((item) => item.id === noteId) : undefined;
+  const move = $('noteMove');
+  if (!note || view.name !== 'note') {
+    move.hidden = true;
+    move.replaceChildren();
+  }
+  if (!note || view.name !== 'note') {
+    $('copySummary').hidden = true;
+  }
   if (!note) {
     slot.hidden = true;
     slot.textContent = '';

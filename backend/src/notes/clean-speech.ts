@@ -14,7 +14,7 @@ export function cleanSpeech(value: string): string {
   text = text.replace(/\[[^\]\n]{0,48}\]/g, ' ').replace(/[♪♫♬]+/g, ' ');
   const words = text
     .split(/\s+/)
-    .map((token) => token.trim())
+    .map((token) => scrubToken(token.trim()))
     .filter((token) => token.length > 0 && keepToken(token));
   return words
     .join(' ')
@@ -23,12 +23,21 @@ export function cleanSpeech(value: string): string {
     .trim();
 }
 
+/** Keep English and Spanish writing. Drop Hangul, CJK, and other stray marks. */
+function scrubToken(token: string): string {
+  return token.replace(/[^\p{Script=Latin}\p{N}.,;:!?¿¡'"()\-]/gu, '');
+}
+
 function keepToken(token: string): boolean {
   const letters = token.replace(/[^\p{L}]/gu, '');
+  const digits = token.replace(/[^\p{N}]/gu, '');
   if (!letters) {
-    return false;
+    return digits.length > 0;
   }
   if (/^(.)\1{3,}$/iu.test(letters)) {
+    return false;
+  }
+  if (letters.length === 1 && !/^[aeiouy]$/i.test(letters)) {
     return false;
   }
   if (letters.length >= 5 && !/[aeiouáéíóúüàèìòùâêîôûäëïöüy]/i.test(letters)) {

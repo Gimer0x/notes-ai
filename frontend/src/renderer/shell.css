@@ -331,9 +331,8 @@ button.auth-link svg {
 .note-meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 0 0 8px;
+  gap: 8px;
+  margin: 0;
 }
 
 .note-meta:not(:has(:not([hidden]))) {
@@ -346,8 +345,59 @@ button.auth-link svg {
   font-size: 0.9rem;
 }
 
-.note-meta .text-btn {
+.note-meta #showTranscript {
   margin: 0 0 0 auto;
+  line-height: 1;
+}
+
+.note-meta #copySummary {
+  width: 18px;
+  height: 18px;
+  margin: 0 0 0 8px;
+}
+
+.note-meta #copySummary svg {
+  transform: translateY(-1px);
+}
+
+.note-meta #showTranscript[hidden] + #copySummary {
+  margin-left: auto;
+}
+
+button.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+}
+
+button.icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+button.icon-btn .copied-icon {
+  display: none;
+}
+
+button.icon-btn.copied .copy-icon {
+  display: none;
+}
+
+button.icon-btn.copied .copied-icon {
+  display: block;
+}
+
+button.icon-btn:hover:not(:disabled) {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink);
 }
 
 .content > .error {
@@ -649,7 +699,9 @@ button.auth-link svg {
 }
 
 .detail {
-  max-width: 640px;
+  max-width: 720px;
+  width: 100%;
+  margin: 28px auto 0;
 }
 
 .profile {
@@ -686,8 +738,9 @@ button.auth-link svg {
 
 .summary-heading {
   margin: 18px 0 8px;
-  font-size: 1.05rem;
+  font-size: 13.65pt;
   font-weight: 600;
+  text-align: left;
 }
 
 .summary-heading:first-child {
@@ -699,6 +752,8 @@ button.auth-link svg {
   margin: 0 0 8px;
   padding-left: 1.25rem;
   line-height: 1.5;
+  text-align: left;
+  font-size: 13pt;
 }
 
 .summary-list {
@@ -712,6 +767,7 @@ button.auth-link svg {
 
 .summary-steps {
   list-style: decimal;
+  padding-left: 2.4rem;
 }
 
 button.text-btn {
@@ -781,6 +837,16 @@ button.text-btn:hover:not(:disabled) {
   flex-wrap: wrap;
   gap: 8px;
   margin: 16px 0;
+}
+
+.note-meta .detail-actions {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.note-meta .detail-actions::before {
+  content: "•";
+  color: var(--muted);
 }
 
 .detail-actions label {

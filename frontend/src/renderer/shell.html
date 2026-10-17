@@ -100,7 +100,28 @@
         <div class="content">
           <div class="note-meta">
             <p class="note-when" id="noteWhen" hidden></p>
+            <div class="detail-actions" id="noteMove" hidden></div>
             <button type="button" class="text-btn" id="showTranscript" hidden></button>
+            <button type="button" class="icon-btn" id="copySummary" hidden>
+              <svg class="copy-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="2" />
+                <path
+                  d="M6 16H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <svg class="copied-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M5 12.5 9.5 17 19 7"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
           </div>
           <p class="error" id="mainError"></p>
           <div id="view"></div>

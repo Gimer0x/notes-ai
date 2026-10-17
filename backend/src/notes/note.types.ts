@@ -1,3 +1,5 @@
+import { cleanSpeech } from './clean-speech';
+
 export type NoteStatus = 'listening' | 'paused' | 'processing' | 'ready' | 'failed';
 
 export type NoteErrorCode = 'upload' | 'stt' | 'gpt';
@@ -105,7 +107,7 @@ function parseTurns(value: string | null): TranscriptTurn[] {
       if (row.source !== 'mic' && row.source !== 'system' && row.source !== 'mix') {
         return [];
       }
-      const text = typeof row.text === 'string' ? row.text.trim() : '';
+      const text = typeof row.text === 'string' ? cleanSpeech(row.text) : '';
       if (!text) {
         return [];
       }
