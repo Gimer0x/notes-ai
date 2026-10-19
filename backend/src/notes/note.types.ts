@@ -11,9 +11,27 @@ export type TranscriptTurn = {
   text: string;
 };
 
+export const WORKSPACE_ICONS = [
+  'circle',
+  'home',
+  'user',
+  'briefcase',
+  'star',
+  'heart',
+  'bookmark',
+  'folder',
+  'calendar',
+  'flag',
+  'book',
+  'chat',
+] as const;
+
+export type WorkspaceIcon = (typeof WORKSPACE_ICONS)[number];
+
 export type WorkspaceResponse = {
   id: string;
   name: string;
+  icon: WorkspaceIcon;
   createdAt: string;
   updatedAt: string;
 };
@@ -39,6 +57,7 @@ export type NoteResponse = {
 export type WorkspaceRow = {
   id: string;
   name: string;
+  icon: string;
   created_at: Date;
   updated_at: Date;
 };
@@ -65,6 +84,7 @@ export function toWorkspace(row: WorkspaceRow): WorkspaceResponse {
   return {
     id: row.id,
     name: row.name,
+    icon: WORKSPACE_ICONS.includes(row.icon as WorkspaceIcon) ? (row.icon as WorkspaceIcon) : 'circle',
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };

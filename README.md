@@ -4,7 +4,7 @@ macOS meeting notepad. Capture (Steps 1–6) is proven. **Steps 7–10** cover t
 
 ## Layout
 
-- `backend/` — NestJS API (`GET /health`, `GET /config`, `GET /me`, Google auth, Stripe Checkout + webhook). `POST /spike/transcribe` only when `NODE_ENV=development` and `CAPTURE_SPIKE_KEY` is set.
+- `backend/` — NestJS API (`GET /health`, `GET /config`, `GET /me`, Google auth, Stripe Checkout + webhook, `POST /ask`, `POST /ask/voice`). `POST /spike/transcribe` only when `NODE_ENV=development` and `CAPTURE_SPIKE_KEY` is set.
 - `frontend/` — Electron notepad (Step 12b: real workspaces and notes) + the note screen on **+ New note** (written notes, Stop / Resume, Generate) + native **Pith Capture Helper** (`DeviceRouter` + `MicCapture` + `SystemTapCapture` + `CaptureSession`)
 - `website/` — public site (Vite + React). No notepad, no capture.
 
@@ -126,9 +126,10 @@ This MVP does not use a custom URL scheme (`pith://`), so a browser tab cannot l
 
 ### Notepad (Step 12b)
 
-1. Sidebar order: **Search**, **Home**, **Profile**, then **Workspace** and the list. Hover or select a workspace to show **...** → **Delete workspace**. If the workspace still has notes, a dialog explains it must be emptied first. The last workspace cannot be deleted. **+ Add workspace** under the list opens a name field (Enter to save, Escape to cancel). Language is on **Profile**, not the top bar.
-2. **Home** lists saved recordings, newest first, grouped by day (Today, Yesterday, or the date). Each row shows the meeting title, the time on the right, and the workspace name under the title. There is no upcoming-events section. Orange **+ New note** opens the note screen after **Sign in**.
+1. Sidebar order: **Search**, **Home**, **Profile**, then **Workspace** and the list. Hover or select a workspace to show **...** → **Delete workspace**. If the workspace still has notes, a dialog explains it must be emptied first. The last workspace cannot be deleted. Each workspace has a line symbol. Click that symbol to choose another from a grid on the same screen. **+ Add workspace** under the list opens a name field (Enter to save, Escape to cancel). Language is on **Profile**, not the top bar.
+2. **Home** lists saved recordings, newest first, grouped by day (Today, Yesterday, or the date). Each row shows the workspace symbol, the meeting title, the time on the right, and the workspace name under the title. There is no upcoming-events section. Orange **+ New note** opens the note screen after **Sign in**.
 3. Opening a workspace shows that workspace's notes the same way, without repeating the workspace name. Hover or select a note to hide the time and show **...** in that same right slot → **Delete note** (regular weight, not bold). Confirm with **Cancel** or **Delete permanently**. **Processing**, **listening**, and **paused** notes cannot be deleted from the list. A note can be renamed. **Move to** sits on the date line, with a bullet between the time and **Move to**, and space before the summary. A copy symbol just to the right of **Transcript** copies the whole summary. On the transcript screen, that symbol sits to the right of **Summary** and copies the whole transcript. **Failed** notes have **Retry**; until a transcript exists, Retry asks you to record the note again.
+4. An **Ask** bar stays at the bottom of the notepad. It is not a sidebar button. A question searches ready notes in every workspace — summaries and transcripts — with the same model used for summaries. The question box sits inside an outer card. The chevron and × stay disabled until there is a search. The answer opens in that card, the same width as the bar, and the two share one border. A chevron collapses that panel and opens it again. An × clears the visit. After an answer, the cursor returns to the question box. A paperclip attaches a PDF, a text file, or an image to that question. **List recent todos** asks for next steps from those summaries and shows them without asterisks. The microphone turns a spoken question into text in the box. It uses the browser microphone and does not start a note or the meeting recorder.
 
 ### Capture (headphones)
 

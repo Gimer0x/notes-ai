@@ -69,6 +69,7 @@ export const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS notes_user_id_idx ON notes (user_id)`,
   `CREATE INDEX IF NOT EXISTS workspaces_user_id_idx ON workspaces (user_id)`,
   `ALTER TABLE notes ADD COLUMN IF NOT EXISTS transcript_turns TEXT`,
+  `ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT 'circle'`,
 ];
 
 export const SEED_PLANS_SQL = `

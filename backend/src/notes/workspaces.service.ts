@@ -5,10 +5,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DbService } from '../db/db.service';
-import { toWorkspace, type WorkspaceResponse, type WorkspaceRow } from './note.types';
+import {
+  WORKSPACE_ICONS,
+  toWorkspace,
+  type WorkspaceIcon,
+  type WorkspaceResponse,
+  type WorkspaceRow,
+} from './note.types';
 
 const DEFAULT_WORKSPACE_NAME = 'Personal';
 const NAME_MAX = 120;
+const WORKSPACE_COLUMNS = 'id, name, icon, created_at, updated_at';
 
 @Injectable()
 export class WorkspacesService {
@@ -17,7 +24,7 @@ export class WorkspacesService {
   async list(userId: string): Promise<WorkspaceResponse[]> {
     await this.ensureDefault(userId);
     const result = await this.db.query<WorkspaceRow>(
-      `SELECT id, name, created_at, updated_at
+      `SELECT ${WORKSPACE_COLUMNS}
        FROM workspaces
        WHERE user_id = $1
        ORDER BY created_at ASC`,
@@ -31,7 +38,7 @@ export class WorkspacesService {
     const result = await this.db.query<WorkspaceRow>(
       `INSERT INTO workspaces (user_id, name)
        VALUES ($1, $2)
-       RETURNING id, name, created_at, updated_at`,
+       RETURNING ${WORKSPACE_COLUMNS}`,
       [userId, trimmed],
     );
     const row = result.rows[0];
@@ -41,10 +48,26 @@ export class WorkspacesService {
     return toWorkspace(row);
   }
 
+  async setIcon(userId: string, workspaceId: string, icon: string): Promise<WorkspaceResponse> {
+    const chosen = cleanIcon(icon);
+    const result = await this.db.query<WorkspaceRow>(
+      `UPDATE workspaces
+       SET icon = $3, updated_at = now()
+       WHERE id = $1 AND user_id = $2
+       RETURNING ${WORKSPACE_COLUMNS}`,
+      [workspaceId, userId, chosen],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new NotFoundException('workspace_not_found');
+    }
+    return toWorkspace(row);
+  }
+
   async remove(userId: string, workspaceId: string): Promise<void> {
     await this.db.transaction(async (query) => {
       const owned = await query<WorkspaceRow>(
-        `SELECT id, name, created_at, updated_at
+        `SELECT ${WORKSPACE_COLUMNS}
          FROM workspaces
          WHERE id = $1 AND user_id = $2
          FOR UPDATE`,
@@ -100,6 +123,14 @@ export class WorkspacesService {
       );
     });
   }
+}
+
+function cleanIcon(icon: string): WorkspaceIcon {
+  const chosen = icon.trim() as WorkspaceIcon;
+  if (!WORKSPACE_ICONS.includes(chosen)) {
+    throw new BadRequestException('workspace_icon');
+  }
+  return chosen;
 }
 
 function cleanName(name: string): string {

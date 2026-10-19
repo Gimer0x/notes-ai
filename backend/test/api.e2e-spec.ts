@@ -202,6 +202,13 @@ describe('API contracts (e2e)', () => {
       .expect(200);
     expect(listed.body).toHaveLength(1);
     expect(listed.body[0].name).toBe('Personal');
+    expect(listed.body[0].icon).toBe('circle');
+    const icon = await http
+      .patch(`/workspaces/${listed.body[0].id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ icon: 'home' })
+      .expect(200);
+    expect(icon.body.icon).toBe('home');
     const personalId = listed.body[0].id as string;
 
     await http

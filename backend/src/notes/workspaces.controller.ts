@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -30,6 +31,15 @@ export class WorkspacesController {
     @Body() body: { name?: string },
   ): Promise<WorkspaceResponse> {
     return this.workspaces.create(userId, body.name ?? '');
+  }
+
+  @Patch(':id')
+  setIcon(
+    @CurrentUserId() userId: string,
+    @Param('id') workspaceId: string,
+    @Body() body: { icon?: string },
+  ): Promise<WorkspaceResponse> {
+    return this.workspaces.setIcon(userId, workspaceId, body.icon ?? '');
   }
 
   @Delete(':id')

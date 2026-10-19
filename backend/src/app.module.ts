@@ -2,6 +2,7 @@ import { config as loadEnv } from 'dotenv';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { spikeEnabled } from './config/app-config';
+import { AskModule } from './ask/ask.module';
 import { BillingModule } from './billing/billing.module';
 import { ConfigApiModule } from './config/config-api.module';
 import { DbModule } from './db/db.module';
@@ -25,6 +26,7 @@ loadEnv({ path: envFile });
     MeModule,
     BillingModule,
     NotesModule,
+    AskModule,
     TranscribeModule,
     ...(spikeEnabled() ? [SpikeModule] : []),
   ],
