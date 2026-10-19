@@ -8,6 +8,7 @@ import { requestScreenCaptureAccess } from './capture/helper-client';
 import { NativeCaptureService } from './capture/native-capture.service';
 import { backendUrl, captureSpikeKey, loadFrontendEnv, websiteUrl } from './env';
 import { resetSessionTrace, trace, writeSessionTrace, type TraceSegment } from './debug/session-trace';
+import { createAskApi } from './ask/ask-api';
 import { createNotesApi } from './notes/notes-api';
 import { SpikeClient, SpikeRequestError } from './spike/spike-client';
 import en from './i18n/en.json';
@@ -20,6 +21,7 @@ capture.subscribeHelperLog((chunk) => trace('helper', chunk));
 const spike = new SpikeClient(backendUrl(), captureSpikeKey());
 const auth = new AuthService();
 const notesApi = createNotesApi(() => auth.getAccessToken());
+const askApi = createAskApi(() => auth.getAccessToken());
 let lastMix: Buffer | null = null;
 let lastMic: Buffer | null = null;
 let lastSystem: Buffer | null = null;
@@ -323,6 +325,9 @@ ipcMain.handle('capture:end', async () => {
 ipcMain.handle('notes:listWorkspaces', () => notesApi.listWorkspaces());
 ipcMain.handle('notes:createWorkspace', (_event, name: string) => notesApi.createWorkspace(name));
 ipcMain.handle('notes:deleteWorkspace', (_event, id: string) => notesApi.deleteWorkspace(id));
+ipcMain.handle('notes:setWorkspaceIcon', (_event, id: string, icon: string) =>
+  notesApi.setWorkspaceIcon(id, icon),
+);
 ipcMain.handle('notes:listNotes', (_event, workspaceId: string) => notesApi.listNotes(workspaceId));
 ipcMain.handle('notes:create', (_event, workspaceId: string, title: string | null) =>
   notesApi.createNote(workspaceId, title),
@@ -352,6 +357,19 @@ ipcMain.handle(
   ) => notesApi.stopNote(id, durationSeconds, transcriptText, language, turns),
 );
 ipcMain.handle('notes:retry', (_event, id: string) => notesApi.retryNote(id));
+ipcMain.handle(
+  'ask:send',
+  (
+    _event,
+    messages: { role: 'user' | 'assistant'; text: string }[],
+    attachments: { name: string; mime: string; dataBase64: string }[],
+  ) => askApi.send(messages, attachments),
+);
+ipcMain.handle(
+  'ask:transcribe',
+  (_event, dataBase64: string, mime: string, name: string) =>
+    askApi.transcribe(dataBase64, mime, name),
+);
 ipcMain.handle('capture:getState', () => capture.getState());
 ipcMain.handle('debug:stopAndTranscribe', async () => {
   const captured = await capture.stop();

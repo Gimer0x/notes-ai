@@ -5,6 +5,7 @@ type CaptureDevice = { inputName: string; lost?: boolean };
 type WorkspaceRecord = {
   id: string;
   name: string;
+  icon: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -83,6 +84,7 @@ type PithApi = {
     listWorkspaces: () => Promise<WorkspaceRecord[]>;
     createWorkspace: (name: string) => Promise<WorkspaceRecord>;
     deleteWorkspace: (id: string) => Promise<void>;
+    setWorkspaceIcon: (id: string, icon: string) => Promise<WorkspaceRecord>;
     listNotes: (workspaceId: string) => Promise<NoteRecord[]>;
     create: (workspaceId: string, title: string | null) => Promise<NoteRecord>;
     rename: (id: string, title: string | null) => Promise<NoteRecord>;
@@ -97,6 +99,13 @@ type PithApi = {
       turns?: TranscriptTurn[] | null,
     ) => Promise<NoteRecord>;
     retry: (id: string) => Promise<NoteRecord>;
+  };
+  ask: {
+    send: (
+      messages: { role: 'user' | 'assistant'; text: string }[],
+      attachments: { name: string; mime: string; dataBase64: string }[],
+    ) => Promise<{ answer: string }>;
+    transcribe: (dataBase64: string, mime: string, name: string) => Promise<{ text: string }>;
   };
   shell: {
     openSpike: (workspaceId: string, workspaceName: string) => Promise<void>;

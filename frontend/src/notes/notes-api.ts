@@ -3,6 +3,7 @@ import { backendUrl } from '../env';
 export type WorkspaceRecord = {
   id: string;
   name: string;
+  icon: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -48,6 +49,10 @@ export class NotesApi {
 
   deleteWorkspace(id: string): Promise<void> {
     return this.request('DELETE', `/workspaces/${id}`);
+  }
+
+  setWorkspaceIcon(id: string, icon: string): Promise<WorkspaceRecord> {
+    return this.request('PATCH', `/workspaces/${id}`, { icon });
   }
 
   listNotes(workspaceId: string): Promise<NoteRecord[]> {

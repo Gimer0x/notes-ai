@@ -126,6 +126,62 @@
           <p class="error" id="mainError"></p>
           <div id="view"></div>
         </div>
+        <div class="ask-dock" id="askDock">
+          <div class="ask-column">
+          <div class="ask-panel empty" id="askPanel">
+            <div class="ask-panel-bar">
+              <button type="button" class="ask-icon" id="askToggle" disabled>
+                <svg class="ask-chevron-hide" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <svg class="ask-chevron-show" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="m6 15 6-6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+              <button type="button" class="ask-icon" id="askNewSession" disabled>
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M7 7l10 10M17 7 7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                </svg>
+              </button>
+            </div>
+            <div class="ask-thread" id="askThread"></div>
+          </div>
+          <div class="ask-files" id="askFiles" hidden></div>
+          <form class="ask-bar" id="askForm">
+            <input id="askInput" type="text" autocomplete="off" />
+            <button type="button" class="ask-chip" id="askTodos"></button>
+            <button type="button" class="ask-icon" id="askAttach">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="m8.5 12.5 6.2-6.2a2.8 2.8 0 0 1 4 4l-7.6 7.6a4 4 0 0 1-5.6-5.6l7.1-7.1"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+            <button type="button" class="ask-icon" id="askMic">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" stroke-width="2" />
+                <path
+                  d="M6 11a6 6 0 0 0 12 0M12 17v3.5"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+          </form>
+          </div>
+          <input
+            id="askFile"
+            type="file"
+            hidden
+            multiple
+            accept=".pdf,.txt,.md,.csv,image/png,image/jpeg,image/webp,image/gif"
+          />
+        </div>
       </section>
     </div>
     <div class="modal" id="confirmDialog" hidden>

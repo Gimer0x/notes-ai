@@ -60,6 +60,8 @@ contextBridge.exposeInMainWorld('pith', {
     listWorkspaces: () => ipcRenderer.invoke('notes:listWorkspaces'),
     createWorkspace: (name: string) => ipcRenderer.invoke('notes:createWorkspace', name),
     deleteWorkspace: (id: string) => ipcRenderer.invoke('notes:deleteWorkspace', id),
+    setWorkspaceIcon: (id: string, icon: string) =>
+      ipcRenderer.invoke('notes:setWorkspaceIcon', id, icon),
     listNotes: (workspaceId: string) => ipcRenderer.invoke('notes:listNotes', workspaceId),
     create: (workspaceId: string, title: string | null) =>
       ipcRenderer.invoke('notes:create', workspaceId, title),
@@ -80,6 +82,14 @@ contextBridge.exposeInMainWorld('pith', {
       }[] | null,
     ) => ipcRenderer.invoke('notes:stop', id, durationSeconds, transcriptText, language, turns),
     retry: (id: string) => ipcRenderer.invoke('notes:retry', id),
+  },
+  ask: {
+    send: (
+      messages: { role: 'user' | 'assistant'; text: string }[],
+      attachments: { name: string; mime: string; dataBase64: string }[],
+    ) => ipcRenderer.invoke('ask:send', messages, attachments),
+    transcribe: (dataBase64: string, mime: string, name: string) =>
+      ipcRenderer.invoke('ask:transcribe', dataBase64, mime, name),
   },
   shell: {
     openSpike: (workspaceId: string, workspaceName: string): Promise<void> =>

@@ -11,9 +11,25 @@ type Me = {
 type Workspace = {
   id: string;
   name: string;
+  icon: string;
   createdAt: string;
   updatedAt: string;
 };
+
+const WORKSPACE_SYMBOLS: { id: string; body: string }[] = [
+  { id: 'circle', body: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.6"/>' },
+  { id: 'home', body: '<path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z"/>' },
+  { id: 'user', body: '<circle cx="12" cy="8" r="3.2"/><path d="M5 19.2c.8-3 3.4-4.7 7-4.7s6.2 1.7 7 4.7"/>' },
+  { id: 'briefcase', body: '<rect x="3" y="7" width="18" height="12" rx="2"/><path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4h5A1.5 1.5 0 0 1 16 5.5V7M3 12h18"/>' },
+  { id: 'star', body: '<path d="m12 3.5 2.2 4.6 5 .7-3.6 3.5.9 5.1L12 15.2 7.5 17.4l.9-5.1L4.8 8.8l5-.7L12 3.5Z"/>' },
+  { id: 'heart', body: '<path d="M12 19s-6.5-4.1-6.5-8.2A3.4 3.4 0 0 1 12 8a3.4 3.4 0 0 1 6.5 2.8C18.5 14.9 12 19 12 19Z"/>' },
+  { id: 'bookmark', body: '<path d="M7 4.5h10a1 1 0 0 1 1 1V20l-6-3.2L6 20V5.5a1 1 0 0 1 1-1Z"/>' },
+  { id: 'folder', body: '<path d="M3.5 7.5A1.5 1.5 0 0 1 5 6h4l2 2h8a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5v-10Z"/>' },
+  { id: 'calendar', body: '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3.5V7M16 3.5V7M4 10h16"/>' },
+  { id: 'flag', body: '<path d="M6 20V4.5M6 5h11l-2 3.5 2 3.5H6"/>' },
+  { id: 'book', body: '<path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v16H7.5A2.5 2.5 0 0 0 5 21.5V5.5Z"/><path d="M5 18.2A2.5 2.5 0 0 1 7.5 16H19"/>' },
+  { id: 'chat', body: '<path d="M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v6A2.5 2.5 0 0 1 16.5 15H10l-4 3.5V6.5Z"/>' },
+];
 type TranscriptTurn = {
   source: 'mic' | 'system' | 'mix';
   startSec: number;
@@ -65,6 +81,7 @@ let liveNoteId: string | null = null;
 let captureState: 'idle' | 'listening' | 'paused' = 'idle';
 let listenTimer: number | null = null;
 let searchQuery = '';
+let symbolPickerId: string | null = null;
 let addingWorkspace = false;
 let pendingDialog: PendingDialog | null = null;
 
@@ -254,15 +271,22 @@ function formatNoteDateTime(note: Note): string {
   return `${date} · ${formatNoteTime(note)}`;
 }
 
-function noteIcon(): HTMLElement {
+function symbolBody(icon: string | undefined): string {
+  return WORKSPACE_SYMBOLS.find((item) => item.id === icon)?.body ?? WORKSPACE_SYMBOLS[0].body;
+}
+
+function symbolSvg(icon: string | undefined): string {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">${symbolBody(icon)}</svg>`;
+}
+
+function noteIcon(icon: string | undefined): HTMLElement {
   const wrap = document.createElement('span');
   wrap.className = 'note-icon';
   wrap.setAttribute('aria-hidden', 'true');
   wrap.innerHTML = `
     <svg viewBox="0 0 32 32" fill="none">
       <rect width="32" height="32" rx="8" fill="#f3eee6" />
-      <circle cx="16" cy="16" r="7" stroke="#5c534c" stroke-width="1.5" />
-      <circle cx="16" cy="16" r="3.5" stroke="#5c534c" stroke-width="1.5" />
+      <svg x="4" y="4" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5c534c" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round">${symbolBody(icon)}</svg>
     </svg>
   `;
   return wrap;
@@ -467,6 +491,8 @@ function commitAddWorkspace(): void {
 }
 
 function closeMenus(): void {
+  symbolPickerId = null;
+  document.querySelectorAll('.symbol-pop').forEach((pop) => pop.remove());
   document.querySelectorAll('.menu-open').forEach((row) => {
     row.classList.remove('menu-open');
   });
@@ -595,7 +621,48 @@ function notesIn(workspaceId: string): Note[] {
   return notes.filter((item) => item.workspaceId === workspaceId);
 }
 
+function symbolPicker(workspace: Workspace): HTMLElement {
+  const pop = document.createElement('div');
+  pop.className = 'symbol-pop';
+  pop.addEventListener('click', (event) => event.stopPropagation());
+  const current = WORKSPACE_SYMBOLS.some((item) => item.id === workspace.icon) ? workspace.icon : 'circle';
+  for (const item of WORKSPACE_SYMBOLS) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'symbol-choice';
+    button.innerHTML = symbolSvg(item.id);
+    button.setAttribute('aria-label', t.chooseSymbol);
+    button.setAttribute('aria-pressed', item.id === current ? 'true' : 'false');
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      void chooseSymbol(workspace, item.id);
+    });
+    pop.append(button);
+  }
+  return pop;
+}
+
+async function chooseSymbol(workspace: Workspace, icon: string): Promise<void> {
+  const previous = workspace.icon;
+  symbolPickerId = null;
+  workspace.icon = icon;
+  render();
+  try {
+    const updated = await pith.notes.setWorkspaceIcon(workspace.id, icon);
+    const index = workspaces.findIndex((item) => item.id === workspace.id);
+    if (index >= 0) {
+      workspaces[index] = updated;
+    }
+    render();
+  } catch (error) {
+    workspace.icon = previous;
+    setSideError(apiMessage(error));
+    render();
+  }
+}
+
 function renderWorkspaces(): void {
+  document.querySelectorAll('.symbol-pop').forEach((pop) => pop.remove());
   const list = $('workspaceList');
   list.replaceChildren();
   const query = searchQuery.trim().toLowerCase();
@@ -626,7 +693,17 @@ function renderWorkspaces(): void {
     if (selected) {
       row.classList.add('active');
     }
-    row.append(name, makeOverflowMenu(row, t.deleteWorkspace, () => requestDeleteWorkspace(workspace.id)));
+    const symbol = document.createElement('button');
+    symbol.type = 'button';
+    symbol.className = 'workspace-symbol';
+    symbol.setAttribute('aria-label', t.chooseSymbol);
+    symbol.innerHTML = symbolSvg(workspace.icon);
+    symbol.addEventListener('click', (event) => {
+      event.stopPropagation();
+      symbolPickerId = symbolPickerId === workspace.id ? null : workspace.id;
+      renderWorkspaces();
+    });
+    row.append(symbol, name, makeOverflowMenu(row, t.deleteWorkspace, () => requestDeleteWorkspace(workspace.id)));
     row.addEventListener('click', () => {
       void (async () => {
         if (liveNoteId) {
@@ -637,7 +714,23 @@ function renderWorkspaces(): void {
       })();
     });
     list.append(row);
+    if (symbolPickerId === workspace.id) {
+      openSymbolPicker(symbol, workspace);
+    }
   }
+}
+
+function openSymbolPicker(anchor: HTMLElement, workspace: Workspace): void {
+  const pop = symbolPicker(workspace);
+  document.body.append(pop);
+  const rect = anchor.getBoundingClientRect();
+  const height = pop.offsetHeight;
+  let top = rect.bottom + 4;
+  if (top + height > window.innerHeight - 8) {
+    top = Math.max(8, rect.top - height - 4);
+  }
+  pop.style.left = `${rect.left}px`;
+  pop.style.top = `${top}px`;
 }
 
 function renderHome(): void {
@@ -741,7 +834,7 @@ function renderNoteFeed(list: HTMLElement, items: Note[], showWorkspace: boolean
       time.className = 'note-time';
       time.textContent = formatNoteTime(note);
       end.append(time, makeOverflowMenu(row, t.deleteNote, () => openDeleteConfirm(note)));
-      row.append(noteIcon(), copy, end);
+      row.append(noteIcon(workspaceById(note.workspaceId)?.icon), copy, end);
       row.addEventListener('click', () => {
         view = { name: 'note', workspaceId: note.workspaceId, noteId: note.id };
         render();
@@ -1226,6 +1319,7 @@ function applyCopy(): void {
   $('openSpikeLabel').textContent = t.newNote;
   $('signInLabel').textContent = t.signIn;
   $('signOutLabel').textContent = t.signOut;
+  askCopy();
   render();
 }
 
@@ -1250,6 +1344,7 @@ async function init(): Promise<void> {
     await refreshMe();
     await reloadLists();
     view = { name: 'home' };
+    resetAsk();
     render();
   });
   $('homeBtn').addEventListener('click', () => {
@@ -1362,11 +1457,366 @@ async function init(): Promise<void> {
       startListenClock();
     }
   });
+  bindAsk();
   try {
     await reloadLists();
     render();
   } catch (error) {
     setMainError(apiMessage(error));
+  }
+}
+
+type AskTurn = { role: 'user' | 'assistant'; text: string };
+type AskAttachment = { name: string; mime: string; dataBase64: string };
+
+const ASK_FILE_LIMIT = 4;
+const ASK_FILE_BYTES = 1_200_000;
+
+let askMessages: AskTurn[] = [];
+let askFiles: AskAttachment[] = [];
+let askSessionFiles: AskAttachment[] = [];
+let askError = '';
+let askBusy = false;
+let askOpen = true;
+let askEpoch = 0;
+let askRecording = false;
+let askDiscardVoice = false;
+let askRecorder: MediaRecorder | null = null;
+let askStream: MediaStream | null = null;
+let askStopTimer = 0;
+
+function askCopy(): void {
+  ($('askInput') as HTMLInputElement).placeholder = t.askPlaceholder;
+  $('askTodos').textContent = t.listRecentTodos;
+  $('askAttach').setAttribute('aria-label', t.askAttach);
+  $('askMic').setAttribute('aria-label', askRecording ? t.askListening : t.askMic);
+  $('askToggle').setAttribute('aria-label', askOpen ? t.askHide : t.askShow);
+  $('askNewSession').setAttribute('aria-label', t.askNewSession);
+}
+
+function presentAskText(role: 'user' | 'assistant', text: string): string {
+  if (role !== 'assistant') {
+    return text;
+  }
+  return text
+    .split('\n')
+    .map((line) => line.replace(/^\s*\*+\s*/, '').replaceAll('*', ''))
+    .join('\n');
+}
+
+function askFailure(error: unknown): string {
+  const code = error instanceof Error ? error.message : '';
+  if (code.includes('sign_in_required')) {
+    return t.signInRequired;
+  }
+  if (code.includes('ask_file_too_large') || code.includes('voice_too_large')) {
+    return t.askFileTooLarge;
+  }
+  if (code.includes('ask_files')) {
+    return t.askTooMany;
+  }
+  if (code.includes('ask_file_type')) {
+    return t.askFileType;
+  }
+  return t.askFailed;
+}
+
+function renderAsk(): void {
+  const thread = $('askThread');
+  const panel = $('askPanel');
+  const files = $('askFiles');
+  const hasThread = askMessages.length > 0 || askError.length > 0 || askBusy;
+  panel.classList.toggle('empty', !hasThread);
+  panel.classList.toggle('collapsed', hasThread && !askOpen);
+  ($('askToggle') as HTMLButtonElement).disabled = !hasThread;
+  ($('askNewSession') as HTMLButtonElement).disabled = !hasThread;
+  thread.innerHTML = [
+    ...askMessages.map(
+      (message) =>
+        `<p class="ask-turn ${message.role}">${escapeHtml(presentAskText(message.role, message.text))}</p>`,
+    ),
+    askBusy ? '<p class="ask-turn ask-pending">…</p>' : '',
+    askError ? `<p class="ask-error">${escapeHtml(askError)}</p>` : '',
+  ].join('');
+  files.hidden = askFiles.length === 0;
+  files.innerHTML = askFiles
+    .map(
+      (file, index) =>
+        `<span class="ask-file">${escapeHtml(file.name)}<button type="button" data-ask-remove="${index}" aria-label="×">×</button></span>`,
+    )
+    .join('');
+  $('askMic').classList.toggle('recording', askRecording);
+  $('askForm')
+    .querySelectorAll('button, input')
+    .forEach((node) => {
+      const control = node as HTMLButtonElement | HTMLInputElement;
+      control.disabled = askBusy && control.id !== 'askMic';
+      if (control.id === 'askMic' && askRecording) {
+        control.disabled = false;
+      }
+    });
+  askCopy();
+  if (hasThread && askOpen) {
+    thread.scrollTop = thread.scrollHeight;
+  }
+}
+
+function resetAsk(): void {
+  askEpoch += 1;
+  askOpen = true;
+  window.clearTimeout(askStopTimer);
+  if (askRecorder && askRecorder.state !== 'inactive') {
+    askDiscardVoice = true;
+    askRecorder.stop();
+  } else {
+    askDiscardVoice = false;
+  }
+  askStream?.getTracks().forEach((track) => track.stop());
+  askStream = null;
+  askMessages = [];
+  askFiles = [];
+  askSessionFiles = [];
+  askError = '';
+  askBusy = false;
+  ($('askInput') as HTMLInputElement).value = '';
+  renderAsk();
+}
+
+function bindAsk(): void {
+  $('askForm').addEventListener('submit', (event) => {
+    event.preventDefault();
+    void sendAsk(($('askInput') as HTMLInputElement).value);
+  });
+  $('askTodos').addEventListener('click', () => {
+    void sendAsk(t.askTodosPrompt);
+  });
+  $('askAttach').addEventListener('click', () => {
+    ($('askFile') as HTMLInputElement).click();
+  });
+  $('askFile').addEventListener('change', () => {
+    const input = $('askFile') as HTMLInputElement;
+    void addAskFiles(input.files);
+    input.value = '';
+  });
+  $('askFiles').addEventListener('click', (event) => {
+    const button = (event.target as HTMLElement).closest('button');
+    const index = Number(button?.getAttribute('data-ask-remove'));
+    if (!Number.isInteger(index)) {
+      return;
+    }
+    askFiles.splice(index, 1);
+    renderAsk();
+  });
+  $('askMic').addEventListener('click', () => {
+    void toggleAskMic();
+  });
+  $('askToggle').addEventListener('click', () => {
+    askOpen = !askOpen;
+    renderAsk();
+  });
+  $('askNewSession').addEventListener('click', () => {
+    resetAsk();
+  });
+  renderAsk();
+}
+
+async function sendAsk(text: string): Promise<void> {
+  const trimmed = text.trim();
+  if (!trimmed || askBusy) {
+    return;
+  }
+  ($('askInput') as HTMLInputElement).value = '';
+  if (askRecording) {
+    askDiscardVoice = true;
+    window.clearTimeout(askStopTimer);
+    if (askRecorder && askRecorder.state !== 'inactive') {
+      askRecorder.stop();
+    }
+  }
+  const attachments = askSessionFiles.concat(askFiles);
+  const names = askFiles.map((file) => file.name).join(', ');
+  askSessionFiles = attachments;
+  askFiles = [];
+  askError = '';
+  askOpen = true;
+  askMessages.push({ role: 'user', text: names ? `${trimmed}\n${names}` : trimmed });
+  askBusy = true;
+  const epoch = askEpoch;
+  renderAsk();
+  try {
+    const result = await pith.ask.send(askMessages, askSessionFiles);
+    if (epoch !== askEpoch) {
+      return;
+    }
+    askMessages.push({ role: 'assistant', text: result.answer });
+  } catch (error) {
+    if (epoch !== askEpoch) {
+      return;
+    }
+    askError = askFailure(error);
+  } finally {
+    if (epoch === askEpoch) {
+      askBusy = false;
+      renderAsk();
+      if (askMessages.at(-1)?.role === 'assistant') {
+        ($('askInput') as HTMLInputElement).focus();
+      }
+    }
+  }
+}
+
+async function addAskFiles(list: FileList | null): Promise<void> {
+  if (!list) {
+    return;
+  }
+  askError = '';
+  for (const file of Array.from(list)) {
+    if (askFiles.length + askSessionFiles.length >= ASK_FILE_LIMIT) {
+      askError = t.askTooMany;
+      break;
+    }
+    const mime = askMime(file);
+    if (!mime) {
+      askError = t.askFileType;
+      continue;
+    }
+    if (file.size > ASK_FILE_BYTES) {
+      askError = t.askFileTooLarge;
+      continue;
+    }
+    askFiles.push({ name: file.name || 'file', mime, dataBase64: await readAskBase64(file) });
+  }
+  renderAsk();
+}
+
+function askMime(file: File): string | null {
+  const type = file.type.toLowerCase();
+  if (type === 'image/jpg') {
+    return 'image/jpeg';
+  }
+  const known = [
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'image/gif',
+    'text/plain',
+    'text/markdown',
+    'text/csv',
+    'application/pdf',
+  ];
+  if (known.includes(type)) {
+    return type;
+  }
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.pdf')) return 'application/pdf';
+  if (name.endsWith('.txt')) return 'text/plain';
+  if (name.endsWith('.md')) return 'text/markdown';
+  if (name.endsWith('.csv')) return 'text/csv';
+  if (name.endsWith('.png')) return 'image/png';
+  if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg';
+  if (name.endsWith('.webp')) return 'image/webp';
+  if (name.endsWith('.gif')) return 'image/gif';
+  return null;
+}
+
+function readAskBase64(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? '');
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('ask_file_type'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function toggleAskMic(): Promise<void> {
+  if (askRecording) {
+    window.clearTimeout(askStopTimer);
+    if (askRecorder && askRecorder.state !== 'inactive') {
+      askRecorder.stop();
+    }
+    return;
+  }
+  if (askBusy) {
+    return;
+  }
+  // Browser microphone only. This does not start a note or the meeting recorder.
+  const state = await pith.capture.getState();
+  if (state !== 'idle') {
+    askError = t.askMicBusy;
+    renderAsk();
+    return;
+  }
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    askError = t.errorMicDenied;
+    renderAsk();
+    return;
+  }
+  const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+  const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  const chunks: Blob[] = [];
+  askStream = stream;
+  askRecorder = recorder;
+  askRecording = true;
+  askDiscardVoice = false;
+  askError = '';
+  recorder.ondataavailable = (event) => {
+    if (event.data.size > 0) {
+      chunks.push(event.data);
+    }
+  };
+  recorder.onstop = () => {
+    stream.getTracks().forEach((track) => track.stop());
+    if (askStream === stream) {
+      askStream = null;
+    }
+    if (askRecorder === recorder) {
+      askRecorder = null;
+    }
+    askRecording = false;
+    renderAsk();
+    if (askDiscardVoice) {
+      askDiscardVoice = false;
+      return;
+    }
+    const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+    void transcribeAsk(blob);
+  };
+  recorder.start();
+  renderAsk();
+  askStopTimer = window.setTimeout(() => {
+    if (recorder.state !== 'inactive') {
+      recorder.stop();
+    }
+  }, 60_000);
+}
+
+async function transcribeAsk(blob: Blob): Promise<void> {
+  askBusy = true;
+  renderAsk();
+  try {
+    const result = await pith.ask.transcribe(
+      await readAskBase64(blob),
+      blob.type || 'audio/webm',
+      'question.webm',
+    );
+    const spoken = result.text.trim();
+    if (spoken) {
+      const input = $('askInput') as HTMLInputElement;
+      input.value = [input.value.trim(), spoken].filter((part) => part.length > 0).join(' ');
+      input.focus();
+    }
+  } catch (error) {
+    askError = askFailure(error);
+  } finally {
+    askBusy = false;
+    renderAsk();
   }
 }
 
