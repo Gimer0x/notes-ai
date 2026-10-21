@@ -24,7 +24,7 @@ export function buildChatMessages(
   files: AskFile[],
 ): ChatMessage[] {
   const context = buildMeetingContext(meetings);
-  const system = `You answer questions about the user's past meetings. Use only the meeting notes below and any files attached to the latest question. If the notes do not contain the answer, say so. Reply in the language of the question. When you use a meeting, name it. For a request about todos or next steps, list the follow-ups from the summaries, newest first, one item per line. Do not use asterisks or markdown.
+  const system = `You answer questions about the user's past meetings. Use only the meeting notes below and any files attached to the latest question. If the notes do not contain the answer, say so. Reply in the language of the question. When you use a meeting, name it. For a request about todos or next steps, list the follow-ups from the summaries, newest first, one item per line. Do not start a line with a hyphen, dash, asterisk, or number. Do not use markdown.
 Meeting notes:
 ${context || '(none yet)'}`;
   const messages: ChatMessage[] = [{ role: 'system', content: system }];

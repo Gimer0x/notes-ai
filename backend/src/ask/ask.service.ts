@@ -9,6 +9,7 @@ import OpenAI, { APIError, toFile } from 'openai';
 import { DbService } from '../db/db.service';
 import { buildChatMessages, type AskFile, type AskTurn } from './ask.prompts';
 import type { MeetingSnippet } from './meeting-context';
+import { buildTodoAnswer, isTodoRequest } from './next-steps';
 
 const DEFAULT_MODEL = 'gpt-4o-mini';
 const MAX_TURNS = 20;
@@ -39,6 +40,10 @@ export class AskService {
     const attachments = cleanFiles(files);
     if (process.env.NODE_ENV === 'test') {
       return { answer: history.at(-1)?.text ?? '' };
+    }
+    const question = history.at(-1)?.text ?? '';
+    if (isTodoRequest(question)) {
+      return { answer: buildTodoAnswer(await this.loadMeetings(userId)) };
     }
     const apiKey = this.config.get<string>('OPENAI_API_KEY')?.trim();
     if (!apiKey) {

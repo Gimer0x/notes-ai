@@ -386,3 +386,60 @@ select {
     flex-wrap: wrap;
   }
 }
+
+.page.home {
+  --page: #ffffff;
+  --surface: #e6e9ec;
+  --ink: #00203f;
+  --muted: #2f2f2f;
+  --line: rgba(0, 32, 63, 0.16);
+  --accent: #17635d;
+  --accent-hover: #00203f;
+  --on-accent: #ffffff;
+  --wash: #e6e9ec;
+  --ok: #ffffff;
+  background: #ffffff;
+  color: #00203f;
+  min-height: 100vh;
+}
+
+.page.home .nav a.active {
+  color: #00203f;
+}
+
+.page.home .badge {
+  background: #2f2f2f;
+  color: #ffffff;
+}
+
+.page.home button:hover:not(:disabled) {
+  color: #ffffff;
+}
+
+.page.home button.secondary {
+  border-color: #00203f;
+}
+
+.page.home button.secondary:hover:not(:disabled) {
+  background: #17635d;
+  color: #ffffff;
+}
+
+.page.home .collage-accent {
+  background: #17635d;
+}
+
+.page.home .note-window {
+  background: #00203f;
+  border-color: #00203f;
+  color: #ffffff;
+}
+
+.page.home .note-window ol,
+.page.home .note-window .caption {
+  color: #ffffff;
+}
+
+.page.home .note-dots span {
+  background: #ffffff;
+}

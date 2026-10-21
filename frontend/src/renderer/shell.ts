@@ -1276,10 +1276,11 @@ function showNoteWhen(): void {
   if (!note || view.name !== 'note') {
     $('copySummary').hidden = true;
   }
-  $('backHome').hidden = view.name !== 'note';
-  $('noteWhen').parentElement?.classList.toggle('align-title', view.name === 'note');
+  const titled = view.name === 'note' || view.name === 'transcript';
+  $('backHome').hidden = !titled;
+  $('noteWhen').parentElement?.classList.toggle('align-title', titled);
   const titleDate = $('titleDate');
-  if (!note || view.name !== 'note') {
+  if (!note || !titled) {
     titleDate.hidden = true;
     titleDate.textContent = '';
   } else {
