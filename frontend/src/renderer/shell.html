@@ -89,7 +89,21 @@
       </aside>
       <section class="main">
         <header class="topbar">
-          <h1 id="mainTitle"></h1>
+          <div class="topbar-title">
+            <button type="button" class="back-home" id="backHome" hidden>
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M14 5 7 12l7 7"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+            <h1 id="mainTitle"></h1>
+            <span class="title-date" id="titleDate" hidden></span>
+          </div>
           <div class="top-actions">
             <button type="button" class="primary new-note" id="openSpike">
               <span class="new-note-plus" aria-hidden="true">+</span>

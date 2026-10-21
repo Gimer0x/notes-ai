@@ -271,6 +271,11 @@ function formatNoteDateTime(note: Note): string {
   return `${date} · ${formatNoteTime(note)}`;
 }
 
+function formatNoteDay(note: Note): string {
+  const when = noteWhen(note);
+  return `${when.getDate()}/${when.getMonth() + 1}/${when.getFullYear()}`;
+}
+
 function symbolBody(icon: string | undefined): string {
   return WORKSPACE_SYMBOLS.find((item) => item.id === icon)?.body ?? WORKSPACE_SYMBOLS[0].body;
 }
@@ -1271,6 +1276,16 @@ function showNoteWhen(): void {
   if (!note || view.name !== 'note') {
     $('copySummary').hidden = true;
   }
+  $('backHome').hidden = view.name !== 'note';
+  $('noteWhen').parentElement?.classList.toggle('align-title', view.name === 'note');
+  const titleDate = $('titleDate');
+  if (!note || view.name !== 'note') {
+    titleDate.hidden = true;
+    titleDate.textContent = '';
+  } else {
+    titleDate.hidden = false;
+    titleDate.textContent = ` - ${formatNoteDay(note)}`;
+  }
   if (!note) {
     slot.hidden = true;
     slot.textContent = '';
@@ -1317,6 +1332,7 @@ function applyCopy(): void {
   ($('search') as HTMLInputElement).placeholder = t.search;
   $('searchShortcut').textContent = t.searchShortcut;
   $('openSpikeLabel').textContent = t.newNote;
+  $('backHome').setAttribute('aria-label', t.home);
   $('signInLabel').textContent = t.signIn;
   $('signOutLabel').textContent = t.signOut;
   askCopy();
@@ -1353,6 +1369,10 @@ async function init(): Promise<void> {
       view = { name: 'home' };
       render();
     })();
+  });
+  $('backHome').addEventListener('click', () => {
+    view = { name: 'home' };
+    render();
   });
   $('profileBtn').addEventListener('click', () => {
     view = { name: 'profile' };
@@ -1504,6 +1524,86 @@ function presentAskText(role: 'user' | 'assistant', text: string): string {
     .join('\n');
 }
 
+function formatTodoDay(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return iso;
+  }
+  return `${date.getUTCDate()}/${date.getUTCMonth() + 1}/${date.getUTCFullYear()}`;
+}
+
+function renderStructuredTodos(text: string): string | null {
+  if (!text.startsWith('@@todos\n')) {
+    return null;
+  }
+  const lines = text.split('\n');
+  const from = lines[1]?.startsWith('from ') ? lines[1].slice(5).trim() : '';
+  const to = lines[2]?.startsWith('to ') ? lines[2].slice(3).trim() : '';
+  const title = t.askTodoRange.replace('{from}', formatTodoDay(from)).replace('{to}', formatTodoDay(to));
+  const groups: { title: string; when: string; items: { text: string; due: string }[] }[] = [];
+  let index = 3;
+  while (index < lines.length) {
+    if (lines[index] !== '@@note') {
+      index += 1;
+      continue;
+    }
+    const group = { title: lines[index + 1] ?? '', when: lines[index + 2] ?? '', items: [] as { text: string; due: string }[] };
+    index += 3;
+    while (index < lines.length && lines[index] !== '@@note') {
+      if (lines[index] === '@@item') {
+        const itemText = lines[index + 1] ?? '';
+        const due = lines[index + 2] === '@@due' ? (lines[index + 3] ?? '') : '';
+        group.items.push({ text: itemText, due });
+        index += lines[index + 2] === '@@due' ? 4 : 2;
+        continue;
+      }
+      index += 1;
+    }
+    if (group.items.length > 0) {
+      groups.push(group);
+    }
+  }
+  const body =
+    groups.length === 0
+      ? `<p class="ask-todo-none">${escapeHtml(t.askTodoNone)}</p>`
+      : groups
+          .map((group) => {
+            const items = group.items
+              .map((item) => {
+                const due = item.due
+                  ? `<span class="ask-todo-due">${escapeHtml(t.askTodoDue.replace('{date}', item.due))}</span>`
+                  : '';
+                return `<li>${escapeHtml(item.text)}${due}</li>`;
+              })
+              .join('');
+            return `<section class="ask-todo-group"><h3 class="ask-todo-head">${escapeHtml(group.title)}<span class="ask-todo-when"> - ${escapeHtml(formatTodoDay(group.when))}</span></h3><ul class="ask-todos">${items}</ul></section>`;
+          })
+          .join('');
+  return `<div class="ask-turn assistant"><p class="ask-todo-title">${escapeHtml(title)}</p>${body}</div>`;
+}
+
+function todoItems(text: string): string[] | null {
+  const items: string[] = [];
+  let marked = false;
+  text.split('\n').forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return;
+    }
+    if (/^([-*•]|\d+[.)])\s+/.test(trimmed)) {
+      marked = true;
+    }
+    const cleaned = trimmed.replace(/^([-*•]|\d+[.)])\s+/, '').replaceAll('*', '').trim();
+    if (cleaned) {
+      items.push(cleaned);
+    }
+  });
+  if (items.length === 0 || (!marked && items.length < 2)) {
+    return null;
+  }
+  return items;
+}
+
 function askFailure(error: unknown): string {
   const code = error instanceof Error ? error.message : '';
   if (code.includes('sign_in_required')) {
@@ -1531,10 +1631,23 @@ function renderAsk(): void {
   ($('askToggle') as HTMLButtonElement).disabled = !hasThread;
   ($('askNewSession') as HTMLButtonElement).disabled = !hasThread;
   thread.innerHTML = [
-    ...askMessages.map(
-      (message) =>
-        `<p class="ask-turn ${message.role}">${escapeHtml(presentAskText(message.role, message.text))}</p>`,
-    ),
+    ...askMessages.map((message, index) => {
+      const previous = askMessages[index - 1];
+      const todoList =
+        message.role === 'assistant' &&
+        previous?.role === 'user' &&
+        previous.text === t.askTodosPrompt;
+      const structured = todoList ? renderStructuredTodos(message.text) : null;
+      if (structured) {
+        return structured;
+      }
+      const items = todoList ? todoItems(message.text) : null;
+      if (items) {
+        const list = items.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+        return `<div class="ask-turn assistant"><ul class="ask-todos">${list}</ul></div>`;
+      }
+      return `<p class="ask-turn ${message.role}">${escapeHtml(presentAskText(message.role, message.text))}</p>`;
+    }),
     askBusy ? '<p class="ask-turn ask-pending">…</p>' : '',
     askError ? `<p class="ask-error">${escapeHtml(askError)}</p>` : '',
   ].join('');
