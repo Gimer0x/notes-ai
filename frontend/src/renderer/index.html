@@ -9,19 +9,19 @@
     <title>Pith Capture Spike</title>
     <style>
       :root {
-        --page: #faf7f1;
-        --surface: #fffcf7;
-        --ink: #4f4842;
-        --muted: #8a8278;
-        --line: #e8e0d4;
-        --accent: #c65a2e;
-        --accent-hover: #a84722;
-        --on-accent: #fff8f2;
-        --wash: #f3d5b8;
+        --page: #ffffff;
+        --surface: #ffffff;
+        --ink: #2a2e3c;
+        --muted: #6b7080;
+        --line: rgba(37, 55, 213, 0.18);
+        --accent: #2537d5;
+        --accent-hover: #1c2aad;
+        --on-accent: #ffffff;
+        --wash: #7e89e6;
         --danger: #8b2e2e;
-        --sidebar: #322c28;
-        --sign-in: #8fbf96;
-        --sign-in-hover: #a8d0ae;
+        --sidebar: #2a2e3c;
+        --sign-in: #7e89e6;
+        --sign-in-hover: #ffffff;
       }
       * {
         box-sizing: border-box;
@@ -226,7 +226,7 @@
         cursor: pointer;
       }
       button:hover:not(:disabled):not(.primary):not(.sign-in):not(.sign-out):not(.danger):not(.home-btn):not(.note-more):not(.danger-item) {
-        background: #fff8f2;
+        background: #eef0fb;
         border-color: var(--wash);
       }
       button.primary {
@@ -262,12 +262,12 @@
       button.sign-out {
         background: transparent;
         border-color: transparent;
-        color: #d4896a;
+        color: #2537d5;
         padding-left: 8px;
         padding-right: 8px;
       }
       button.sign-out:hover:not(:disabled) {
-        color: #e09b7c;
+        color: #7e89e6;
       }
       button:disabled {
         opacity: 0.45;

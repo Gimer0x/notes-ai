@@ -290,8 +290,8 @@ function noteIcon(icon: string | undefined): HTMLElement {
   wrap.setAttribute('aria-hidden', 'true');
   wrap.innerHTML = `
     <svg viewBox="0 0 32 32" fill="none">
-      <rect width="32" height="32" rx="8" fill="#f3eee6" />
-      <svg x="4" y="4" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5c534c" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round">${symbolBody(icon)}</svg>
+      <rect width="32" height="32" rx="8" fill="#f2f3f6" />
+      <svg x="4" y="4" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2a2e3c" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round">${symbolBody(icon)}</svg>
     </svg>
   `;
   return wrap;
