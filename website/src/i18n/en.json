@@ -48,5 +48,16 @@
   "remainingNotesUnlimited": "Unlimited notes",
   "paidSuccessTitle": "You're paid",
   "paidSuccessBody": "You can close this tab. The Mac app will show Paid after it refreshes your plan.",
-  "footerNote": "macOS first. Screen Recording permission is only used to hear other apps, never to save video."
+  "footerNote": "macOS first. Screen Recording permission is only used to hear other apps, never to save video.",
+  "welcomeTitle": "Welcome to Pith",
+  "welcomeLead": "Sign in with your Google account to get started.",
+  "welcomeGoogle": "Sign in with Google",
+  "welcomeAgreeBefore": "By continuing, you agree to the ",
+  "welcomeAgreeAnd": " and ",
+  "welcomeAgreeAfter": ".",
+  "welcomeBack": "Back to sign in",
+  "termsTitle": "Terms of Service",
+  "termsBody": "This page is a placeholder. The terms of service will be published here.",
+  "privacyTitle": "Privacy Policy",
+  "privacyBody": "This page is a placeholder. The privacy policy will be published here."
 }

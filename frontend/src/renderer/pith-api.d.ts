@@ -114,6 +114,7 @@ type PithApi = {
   shell: {
     openSpike: (workspaceId: string, workspaceName: string) => Promise<void>;
     openNotepad: () => Promise<void>;
+    openSite: (page: 'terms' | 'privacy') => Promise<void>;
   };
 };
 

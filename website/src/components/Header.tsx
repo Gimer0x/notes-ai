@@ -1,11 +1,11 @@
-import { NavLink } from 'react-router-dom';
+import { Link, NavLink } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { useI18n } from '../i18n/I18nProvider';
 import { planLabel } from '../i18n/planLabel';
 
 export function Header() {
   const { t } = useI18n();
-  const { signedIn, me, signIn, signOut } = useAuth();
+  const { signedIn, me, signOut } = useAuth();
 
   return (
     <header className="header">
@@ -31,9 +31,9 @@ export function Header() {
               </button>
             </>
           ) : (
-            <button type="button" className="secondary" onClick={() => void signIn()}>
+            <Link className="nav-signin" to="/welcome">
               {t.signIn}
-            </button>
+            </Link>
           )}
           <button type="button" disabled title={t.downloadSoon}>
             {t.downloadMac}

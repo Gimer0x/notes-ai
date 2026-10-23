@@ -1,12 +1,13 @@
 import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { useI18n } from '../i18n/I18nProvider';
 import { planLabel } from '../i18n/planLabel';
 
 export function AccountPage() {
   const { t } = useI18n();
-  const { signedIn, me, signIn, loading, refresh } = useAuth();
+  const { signedIn, me, loading, refresh } = useAuth();
   const [params] = useSearchParams();
   const justPaid = params.get('checkout') === 'success';
 
@@ -38,9 +39,9 @@ export function AccountPage() {
           <h1>{t.navAccount}</h1>
           <p className="lead">{t.accountSignIn}</p>
           <div className="actions">
-            <button type="button" onClick={() => void signIn()}>
+            <Link className="button-link" to="/welcome">
               {t.signIn}
-            </button>
+            </Link>
           </div>
         </section>
       </div>

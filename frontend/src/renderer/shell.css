@@ -397,6 +397,91 @@ button.auth-link svg {
   color: var(--ink);
 }
 
+.topbar.welcome-mode {
+  display: none;
+}
+
+.welcome-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 32px 16px;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(126, 137, 230, 0.18), transparent 32%),
+    radial-gradient(circle at 80% 90%, rgba(37, 55, 213, 0.22), transparent 36%),
+    #1b1e28;
+}
+
+.welcome-card {
+  width: min(440px, 100%);
+  padding: 40px 32px 28px;
+  border-radius: 28px;
+  color: #ffffff;
+  text-align: center;
+  border: 3px solid transparent;
+  background-image:
+    linear-gradient(#2a2e3c, #2a2e3c),
+    linear-gradient(135deg, #7e89e6, #2537d5 55%, #7e89e6);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+}
+
+.welcome-mark {
+  width: 160px;
+  height: auto;
+  margin: 0 auto 24px;
+  filter: brightness(0) invert(1);
+}
+
+.welcome-card h1 {
+  margin: 0 0 10px;
+  font-size: 2rem;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+.welcome-lead {
+  margin: 0 0 24px;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.welcome-google {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: transparent;
+  color: #ffffff;
+  padding: 12px 18px;
+}
+
+.welcome-google svg {
+  width: 18px;
+  height: 18px;
+}
+
+.welcome-legal {
+  margin: 22px 0 0;
+  font-size: 0.86rem;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.welcome-link {
+  border: none;
+  background: transparent;
+  color: #ffffff;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .topbar h1 {
   margin: 0;
   min-width: 0;

@@ -107,6 +107,8 @@ contextBridge.exposeInMainWorld('pith', {
     openSpike: (workspaceId: string, workspaceName: string): Promise<void> =>
       ipcRenderer.invoke('shell:openSpike', workspaceId, workspaceName),
     openNotepad: (): Promise<void> => ipcRenderer.invoke('shell:openNotepad'),
+    openSite: (page: 'terms' | 'privacy'): Promise<void> =>
+      ipcRenderer.invoke('shell:openSite', page),
   },
 });
 

@@ -254,6 +254,12 @@ ipcMain.handle('shell:openNotepad', async () => {
     void mainWindow.loadFile(rendererFile('shell.html'));
   }
 });
+ipcMain.handle('shell:openSite', async (_event, page: string) => {
+  if (page !== 'terms' && page !== 'privacy') {
+    return;
+  }
+  await shell.openExternal(`${websiteUrl()}/${page}`);
+});
 ipcMain.handle('i18n:locale', () => preferredLocale());
 ipcMain.handle('i18n:messages', (_event, locale: 'en' | 'es') => {
   return locale === 'es' ? es : en;
