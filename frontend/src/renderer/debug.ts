@@ -96,14 +96,25 @@ function showSummary(lines: string[]): void {
   const blocks: string[] = [];
   for (const line of lines) {
     const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
     if (trimmed.startsWith('#')) {
       if (blocks.length > 0) {
         blocks.push('');
       }
       blocks.push(trimmed.replace(/^#+\s*/, ''));
-    } else {
-      blocks.push(line.trimEnd());
+      continue;
     }
+    if (/^\d+[.)]\s+/.test(trimmed)) {
+      blocks.push(`    ${trimmed}`);
+      continue;
+    }
+    if (/^[•\-*]\s+/.test(trimmed)) {
+      blocks.push(`  ${trimmed}`);
+      continue;
+    }
+    blocks.push(trimmed);
   }
   const body = noteBody();
   body.value = blocks.join('\n').trim();
@@ -228,6 +239,8 @@ function listenedEnough(): boolean {
   return minListenSeconds != null && recordedSeconds() + 1e-6 >= minListenSeconds;
 }
 
+let generating = false;
+
 function applyGenerateEnabled(): void {
   const toggle = $('listenToggle') as HTMLButtonElement;
   const generate = $('generate') as HTMLButtonElement;
@@ -239,7 +252,8 @@ function applyGenerateEnabled(): void {
     captureFinished ||
     (captureState !== 'listening' && captureState !== 'paused') ||
     !listenedEnough();
-  generate.textContent = t.generate;
+  generate.textContent = generating ? t.generating : t.generate;
+  generate.classList.toggle('generating', generating);
   $('levelPill').hidden = false;
 }
 
@@ -414,6 +428,21 @@ function watchMicrophoneGrant(): void {
 
 let liveNoteId: string | null = null;
 
+function noteTitleValue(): string | null {
+  const value = (document.getElementById('noteTitle') as HTMLInputElement).value.trim();
+  if (!value || value === t.newNote) {
+    return null;
+  }
+  return value;
+}
+
+async function saveLiveTitle(): Promise<void> {
+  if (!liveNoteId) {
+    return;
+  }
+  await pith.notes.rename(liveNoteId, noteTitleValue()).catch(() => undefined);
+}
+
 async function bindLiveNote(): Promise<void> {
   if (liveNoteId) {
     return;
@@ -427,7 +456,7 @@ async function bindLiveNote(): Promise<void> {
     return;
   }
   const title = (document.getElementById('noteTitle') as HTMLInputElement).value.trim();
-  const created = await pith.notes.create(workspaceId, title || null);
+  const created = await pith.notes.create(workspaceId, title === t.newNote ? null : title || null);
   liveNoteId = created.id;
   await pith.capture.arm(created.id);
 }
@@ -509,7 +538,9 @@ async function init(): Promise<void> {
     }
   });
 
-  $('backToNotepad').addEventListener('click', () => pith.shell.openNotepad());
+  $('backToNotepad').addEventListener('click', () => {
+    void saveLiveTitle().finally(() => pith.shell.openNotepad());
+  });
   const title = document.getElementById('noteTitle') as HTMLInputElement;
   title.addEventListener('focus', () => {
     if (title.value === t.newNote) {
@@ -518,6 +549,17 @@ async function init(): Promise<void> {
   });
   title.addEventListener('input', () => {
     document.title = title.value.trim() || t.newNote;
+  });
+  title.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') {
+      return;
+    }
+    event.preventDefault();
+    void saveLiveTitle();
+    noteBody().focus();
+  });
+  title.addEventListener('blur', () => {
+    void saveLiveTitle();
   });
   $('spikeMore').addEventListener('click', (event) => {
     event.stopPropagation();
@@ -584,32 +626,39 @@ async function init(): Promise<void> {
     }
     pauseTimer();
     clearPauseLimit();
+    generating = true;
+    applyGenerateEnabled();
     void withBusy(async () => {
       awaitingTranscript = true;
       const typedNotes = noteBody().value.trim();
-      await bindLiveNote();
-      if (!liveNoteId) {
-        throw new Error('notes_workspace');
-      }
+      try {
+        await bindLiveNote();
+        if (!liveNoteId) {
+          throw new Error('notes_workspace');
+        }
       const noteId = liveNoteId;
       try {
+        await saveLiveTitle();
         const result = await pith.capture.stop(noteId, typedNotes);
-        liveNoteId = null;
-        captureFinished = true;
-        freezeTimer(recordedSeconds());
-        applyLevels({ mic: 0, system: 0 });
-        if (result.summaryText.length > 0) {
-          showSummary(result.summaryText);
-        } else {
-          setError('summary_failed');
-        }
-      } catch (error) {
-        await pith.notes.cancel(noteId).catch(() => undefined);
-        liveNoteId = null;
-        if (!captureFinished) {
+          liveNoteId = null;
+          captureFinished = true;
           freezeTimer(recordedSeconds());
+          applyLevels({ mic: 0, system: 0 });
+          if (result.summaryText.length > 0) {
+            showSummary(result.summaryText);
+          } else {
+            setError('summary_failed');
+          }
+        } catch (error) {
+          await pith.notes.cancel(noteId).catch(() => undefined);
+          liveNoteId = null;
+          if (!captureFinished) {
+            freezeTimer(recordedSeconds());
+          }
+          throw error;
         }
-        throw error;
+      } finally {
+        generating = false;
       }
     });
   });

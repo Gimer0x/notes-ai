@@ -273,6 +273,19 @@
         opacity: 0.45;
         cursor: default;
       }
+      button.primary.generating:disabled {
+        opacity: 1;
+        animation: generate-pulse 1.1s ease-in-out infinite;
+      }
+      @keyframes generate-pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
       button:focus-visible,
       select:focus-visible {
         outline: 2px solid var(--accent);

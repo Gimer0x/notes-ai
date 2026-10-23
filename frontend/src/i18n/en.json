@@ -8,6 +8,7 @@
   "resume": "Resume",
   "stop": "Stop",
   "generate": "Generate",
+  "generating": "Generating...",
   "cancel": "Cancel",
   "resend": "Resend last mix",
   "statusIdle": "Idle",

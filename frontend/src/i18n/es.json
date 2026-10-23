@@ -8,6 +8,7 @@
   "resume": "Reanudar",
   "stop": "Detener",
   "generate": "Generar",
+  "generating": "Generando...",
   "cancel": "Cancelar",
   "resend": "Reenviar última mezcla",
   "statusIdle": "Inactivo",
