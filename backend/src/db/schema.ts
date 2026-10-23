@@ -70,6 +70,28 @@ export const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS workspaces_user_id_idx ON workspaces (user_id)`,
   `ALTER TABLE notes ADD COLUMN IF NOT EXISTS transcript_turns TEXT`,
   `ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT 'circle'`,
+  `ALTER TABLE notes ADD COLUMN IF NOT EXISTS final_seq INTEGER`,
+  `ALTER TABLE notes ADD COLUMN IF NOT EXISTS summary_running BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE notes ADD COLUMN IF NOT EXISTS typed_notes TEXT`,
+  `CREATE TABLE IF NOT EXISTS note_slices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    note_id UUID NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'done', 'failed')),
+    source TEXT NOT NULL CHECK (source IN ('mic', 'system', 'mix')),
+    start_sec DOUBLE PRECISION NOT NULL,
+    end_sec DOUBLE PRECISION NOT NULL,
+    wav_path TEXT,
+    transcript TEXT,
+    language TEXT CHECK (language IN ('en', 'es')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    locked_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (note_id, seq)
+  )`,
+  `CREATE INDEX IF NOT EXISTS note_slices_claim_idx ON note_slices (status, created_at)`,
 ];
 
 export const SEED_PLANS_SQL = `

@@ -3,7 +3,7 @@ import { readFile, unlink } from 'fs/promises';
 import * as path from 'path';
 import { AuthService } from './auth/auth.service';
 import type { CaptureDevice, CaptureLevels } from './capture/capture.service';
-import { segmentTracks } from './capture/segment-tracks';
+import { segmentTracks, splitLongSegments } from './capture/segment-tracks';
 import { requestScreenCaptureAccess } from './capture/helper-client';
 import { NativeCaptureService } from './capture/native-capture.service';
 import { backendUrl, captureSpikeKey, loadFrontendEnv, websiteUrl } from './env';
@@ -308,6 +308,7 @@ ipcMain.handle('capture:pause', () => capture.pause());
 ipcMain.handle('capture:resume', () => capture.resume());
 ipcMain.handle('capture:cancel', async () => {
   beginNote();
+  resetExport();
   await capture.cancel();
 });
 ipcMain.handle('capture:end', async () => {
@@ -370,69 +371,123 @@ ipcMain.handle(
   (_event, dataBase64: string, mime: string, name: string) =>
     askApi.transcribe(dataBase64, mime, name),
 );
-ipcMain.handle('capture:getState', () => capture.getState());
-ipcMain.handle('debug:stopAndTranscribe', async () => {
-  const captured = await capture.stop();
+let exportTimer: ReturnType<typeof setInterval> | null = null;
+let armedNoteId: string | null = null;
+let nextSliceSeq = 1;
+let audioOffsetSec = 0;
+let exportChain: Promise<void> = Promise.resolve();
+
+function stopExportTimer(): void {
+  if (exportTimer) {
+    clearInterval(exportTimer);
+    exportTimer = null;
+  }
+}
+
+function resetExport(): void {
+  stopExportTimer();
+  armedNoteId = null;
+  nextSliceSeq = 1;
+  audioOffsetSec = 0;
+}
+
+async function uploadCaptured(
+  noteId: string,
+  captured: { filePath: string; durationSeconds: number; micFilePath?: string; systemFilePath?: string },
+): Promise<void> {
   const mix = await readFile(captured.filePath);
   const mic = captured.micFilePath ? await readFile(captured.micFilePath) : null;
-  const system = captured.systemFilePath
-    ? await readFile(captured.systemFilePath)
-    : null;
-  await unlink(captured.filePath);
+  const system = captured.systemFilePath ? await readFile(captured.systemFilePath) : null;
+  await unlink(captured.filePath).catch(() => undefined);
   if (captured.micFilePath) {
     await unlink(captured.micFilePath).catch(() => undefined);
   }
   if (captured.systemFilePath) {
     await unlink(captured.systemFilePath).catch(() => undefined);
   }
-  const durationSeconds = Number(captured.durationSeconds);
-  logFrontend(
-    `spike files mix=${mix.length}B mic=${mic?.length ?? 0}B sys=${system?.length ?? 0}B duration=${Number.isFinite(durationSeconds) ? durationSeconds.toFixed(2) : 'invalid'}s`,
-  );
-  const { minListenSeconds } = await loadAppConfig();
-  if (!Number.isFinite(durationSeconds) || durationSeconds < minListenSeconds) {
-    logFrontend(
-      `spike too_short duration=${Number.isFinite(durationSeconds) ? durationSeconds.toFixed(2) : 'invalid'}s min=${minListenSeconds}`,
+  const config = await loadAppConfig();
+  const chunkSeconds = config.wavChunkSeconds > 0 ? config.wavChunkSeconds : 600;
+  const pieces = splitLongSegments(segmentTracks(mic, system, mix), chunkSeconds);
+  const offset = audioOffsetSec;
+  audioOffsetSec += Number(captured.durationSeconds) || 0;
+  for (const piece of pieces) {
+    const seq = nextSliceSeq;
+    nextSliceSeq += 1;
+    await notesApi.uploadSlice(
+      noteId,
+      seq,
+      piece.source,
+      offset + piece.startSec,
+      offset + piece.endSec,
+      piece.wav,
     );
-    lastMix = null;
-    lastMic = null;
-    lastSystem = null;
-    await saveDebugLog({
-      durationSeconds,
-      segments: [],
-      backendLogs: [],
-      error: 'too_short',
+  }
+  logFrontend(`slices uploaded count=${pieces.length} next=${nextSliceSeq}`);
+}
+
+async function exportLiveChunk(): Promise<void> {
+  const noteId = armedNoteId;
+  if (!noteId || capture.getState() === 'idle') {
+    return;
+  }
+  const captured = await capture.exportChunk();
+  if (!captured) {
+    return;
+  }
+  logFrontend(`export chunk sec=${captured.durationSeconds.toFixed(1)}`);
+  await uploadCaptured(noteId, captured);
+}
+
+ipcMain.handle('capture:arm', (_event, noteId: string) => {
+  resetExport();
+  armedNoteId = noteId;
+  exportTimer = setInterval(() => {
+    exportChain = exportChain.then(() => exportLiveChunk()).catch((error: unknown) => {
+      logFrontend(`export ${error instanceof Error ? error.message : 'failed'}`);
     });
+  }, 10_000);
+});
+ipcMain.handle('capture:disarm', () => {
+  resetExport();
+});
+ipcMain.handle('capture:getState', () => capture.getState());
+ipcMain.handle('debug:stopAndTranscribe', async (_event, noteId: string, typedNotes: string) => {
+  await exportChain;
+  stopExportTimer();
+  let tailSeconds = 0;
+  try {
+    const captured = await capture.stop();
+    tailSeconds = Number(captured.durationSeconds) || 0;
+    await uploadCaptured(noteId, captured);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    if ((message !== 'empty' && message !== 'too_short') || nextSliceSeq === 1) {
+      resetExport();
+      throw error;
+    }
+  }
+  const durationSeconds = audioOffsetSec;
+  const config = await loadAppConfig();
+  if (!Number.isFinite(durationSeconds) || durationSeconds < config.minListenSeconds) {
+    resetExport();
     throw new Error('too_short');
   }
-  lastMix = mix;
-  lastMic = mic;
-  lastSystem = system;
-  logFrontend('capture stopped; transcribing');
-  try {
-    const transcript = await transcribeNote({ mix, mic, system });
-    await saveDebugLog({
-      durationSeconds,
-      segments: transcript.segments,
-      backendLogs: transcript.logs,
-    });
-    return {
-      text: transcript.text,
-      language: transcript.language,
-      durationSeconds: captured.durationSeconds,
-      systemAudioEnabled: lastSystemAudioEnabled,
-      turns: transcript.turns,
-    };
-  } catch (error) {
-    const failed = traceFailure(error);
-    await saveDebugLog({
-      durationSeconds,
-      segments: failed.segments,
-      backendLogs: failed.logs,
-      error: failed.message,
-    });
-    throw error;
+  const finalSeq = nextSliceSeq - 1;
+  logFrontend(`capture stopped; finalSeq=${finalSeq} sec=${durationSeconds.toFixed(1)} tail=${tailSeconds.toFixed(1)}`);
+  await notesApi.sealNote(noteId, finalSeq, durationSeconds, typedNotes ?? '');
+  resetExport();
+  const started = Date.now();
+  while (Date.now() - started < 30 * 60 * 1000) {
+    const note = await notesApi.getNote(noteId);
+    if (note.status === 'ready' || note.status === 'failed') {
+      if (note.status === 'failed') {
+        throw new Error(note.errorMessage || 'slice_failed');
+      }
+      return note;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
+  throw new Error('slice_timeout');
 });
 ipcMain.handle('debug:hasLastMix', () => Boolean(lastMix && lastMix.length > 0));
 ipcMain.handle('debug:resend', async () => {

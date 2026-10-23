@@ -152,6 +152,41 @@ final class CaptureSession: @unchecked Sendable {
     return try await gate.run { try await finish() }
   }
 
+  /// Writes the oldest 5 minutes and drops those samples. Hardware keeps running.
+  func exportChunk() async throws -> (
+    url: URL, micURL: URL?, systemURL: URL?, duration: Double
+  )? {
+    await flushAudio()
+    let chunk = WavWriter.sampleRate * 300
+    let tracks: ([Int16], [Int16])? = withLock {
+      guard state == "listening" || state == "paused", !frozen else { return nil }
+      let systemOn = systemAudioEnabled
+      let ready = systemOn
+        ? micSamples.count >= chunk && systemSamples.count >= chunk
+        : micSamples.count >= chunk
+      guard ready else { return nil }
+      let micPrefix = Array(micSamples.prefix(chunk))
+      let systemPrefix = systemOn ? Array(systemSamples.prefix(chunk)) : []
+      micSamples.removeFirst(chunk)
+      if systemOn { systemSamples.removeFirst(chunk) }
+      return (micPrefix, systemPrefix)
+    }
+    guard let tracks else { return nil }
+    let mixed = AudioConvert.mix(tracks.0, tracks.1)
+    guard !mixed.isEmpty else { return nil }
+    let stamp = UUID().uuidString
+    let dir = FileManager.default.temporaryDirectory
+    let mixURL = dir.appendingPathComponent("pith-\(stamp)-mix.wav")
+    let micURL = tracks.0.isEmpty ? nil : dir.appendingPathComponent("pith-\(stamp)-mic.wav")
+    let systemURL = tracks.1.isEmpty ? nil : dir.appendingPathComponent("pith-\(stamp)-sys.wav")
+    try WavWriter.writeCanonical(samples: mixed, to: mixURL)
+    if let micURL { try WavWriter.writeCanonical(samples: tracks.0, to: micURL) }
+    if let systemURL { try WavWriter.writeCanonical(samples: tracks.1, to: systemURL) }
+    let duration = Double(mixed.count) / Double(WavWriter.sampleRate)
+    CaptureLog.line("export chunk sec=\(String(format: "%.1f", duration)) mix=\(mixURL.lastPathComponent)")
+    return (mixURL, micURL, systemURL, duration)
+  }
+
   func cancel() async {
     await gate.run {
       clearSession()

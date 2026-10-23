@@ -126,6 +126,38 @@ function mergeLabels(
   return regions;
 }
 
+export function splitLongSegments(segments: TrackSegment[], chunkSeconds: number): TrackSegment[] {
+  if (!(chunkSeconds > 0)) {
+    return segments;
+  }
+  const out: TrackSegment[] = [];
+  for (const segment of segments) {
+    const parsed = parsePcm(segment.wav);
+    if (!parsed) {
+      out.push(segment);
+      continue;
+    }
+    const bytesPerSecond = parsed.sampleRate * 2;
+    const chunkBytes = Math.floor(chunkSeconds * bytesPerSecond);
+    if (chunkBytes <= 0 || parsed.data.length <= chunkBytes) {
+      out.push(segment);
+      continue;
+    }
+    for (let offset = 0; offset < parsed.data.length; offset += chunkBytes) {
+      const slice = parsed.data.subarray(offset, Math.min(offset + chunkBytes, parsed.data.length));
+      const start = segment.startSec + offset / bytesPerSecond;
+      out.push({
+        source: segment.source,
+        startSec: start,
+        endSec: start + slice.length / bytesPerSecond,
+        peak: segment.peak,
+        wav: buildWav(parsed.fmt, slice),
+      });
+    }
+  }
+  return out;
+}
+
 function peakOf(data: Buffer | undefined, startSample: number, endSample: number): number {
   if (!data) {
     return 0;

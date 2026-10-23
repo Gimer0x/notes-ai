@@ -62,20 +62,24 @@ type PithApi = {
     start: () => Promise<{ systemAudioEnabled: boolean; inputName: string }>;
     pause: () => Promise<void>;
     resume: () => Promise<void>;
-    stop: () => Promise<{
-      text: string;
-      language: Locale;
-      durationSeconds: number;
-      systemAudioEnabled: boolean;
-      turns: TranscriptTurn[];
+    stop: (
+      noteId: string,
+      typedNotes: string,
+    ) => Promise<{
+      id: string;
+      summaryText: string[];
+      status: 'ready' | 'failed' | 'listening' | 'paused' | 'processing';
     }>;
     cancel: () => Promise<void>;
     end: () => Promise<{ durationSeconds: number }>;
     getState: () => Promise<'idle' | 'listening' | 'paused'>;
+    arm: (noteId: string) => Promise<void>;
+    disarm: () => Promise<void>;
     resend: () => Promise<{ text: string; language: Locale }>;
     hasLastMix: () => Promise<boolean>;
     onLevels: (listener: (levels: CaptureLevels) => void) => () => void;
     onDevice: (listener: (device: CaptureDevice) => void) => () => void;
+    onSliceProgress: (listener: (progress: { done: number; total: number }) => void) => () => void;
   };
   permissions: {
     promptMicrophone: () => Promise<boolean>;

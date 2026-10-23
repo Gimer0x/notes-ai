@@ -1,4 +1,5 @@
 import { backendUrl } from '../env';
+import FormData from 'form-data';
 
 export type WorkspaceRecord = {
   id: string;
@@ -98,6 +99,39 @@ export class NotesApi {
     return this.request('POST', `/notes/${id}/retry`);
   }
 
+  uploadSlice(
+    id: string,
+    seq: number,
+    source: 'mic' | 'system' | 'mix',
+    startSec: number,
+    endSec: number,
+    wav: Buffer,
+  ): Promise<void> {
+    const form = new FormData();
+    form.append('audio', wav, {
+      filename: `${source}-${seq}.wav`,
+      contentType: 'audio/wav',
+      knownLength: wav.length,
+    });
+    form.append('seq', String(seq));
+    form.append('source', source);
+    form.append('startSec', String(startSec));
+    form.append('endSec', String(endSec));
+    return this.sendForm(`/notes/${id}/slices`, form);
+  }
+
+  sliceProgress(id: string): Promise<{ done: number; total: number; failed: number; status: string }> {
+    return this.request('GET', `/notes/${id}/slices`);
+  }
+
+  sealNote(id: string, finalSeq: number, durationSeconds: number, typedNotes: string): Promise<void> {
+    return this.request('POST', `/notes/${id}/seal`, { finalSeq, durationSeconds, typedNotes });
+  }
+
+  getNote(id: string): Promise<NoteRecord> {
+    return this.request('GET', `/notes/${id}`);
+  }
+
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const access = await this.token();
     if (!access) {
@@ -121,6 +155,27 @@ export class NotesApi {
       const message = Array.isArray(payload.message)
         ? payload.message.join(', ')
         : payload.message;
+      throw new Error(message || `notes_${response.status}`);
+    }
+    return payload as T;
+  }
+
+  private async sendForm<T>(path: string, form: FormData): Promise<T> {
+    const access = await this.token();
+    if (!access) {
+      throw new Error('sign_in_required');
+    }
+    const response = await fetch(`${this.url().replace(/\/$/, '')}${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${access}`,
+        ...form.getHeaders(),
+      },
+      body: new Uint8Array(form.getBuffer()),
+    });
+    const payload = (await response.json().catch(() => ({}))) as { message?: string | string[] };
+    if (!response.ok) {
+      const message = Array.isArray(payload.message) ? payload.message.join(', ') : payload.message;
       throw new Error(message || `notes_${response.status}`);
     }
     return payload as T;

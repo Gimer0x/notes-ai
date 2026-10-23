@@ -154,6 +154,21 @@ stdin.readabilityHandler = { handle in
               durationSeconds: result.duration
             )
           )
+        case "export":
+          if let result = try await engine.exportChunk() {
+            writeOutbound(
+              Outbound(
+                id: inbound.id,
+                ok: true,
+                filePath: result.url.path,
+                micFilePath: result.micURL?.path,
+                systemFilePath: result.systemURL?.path,
+                durationSeconds: result.duration
+              )
+            )
+          } else {
+            writeOutbound(Outbound(id: inbound.id, ok: true))
+          }
         case "cancel":
           await engine.cancel()
           writeOutbound(Outbound(id: inbound.id, ok: true))

@@ -92,44 +92,6 @@ function armPauseLimit(): void {
   }, pauseAutoCancelSeconds * 1000);
 }
 
-async function saveGeneratedNote(
-  result: {
-    text: string;
-    language: Locale;
-    durationSeconds: number;
-    turns: { source: 'mic' | 'system' | 'mix'; startSec: number; endSec: number; text: string }[];
-  },
-  typedNotes: string,
-) {
-  let workspaceId = recordingWorkspace().id;
-  if (!workspaceId) {
-    const listed = await pith.notes.listWorkspaces();
-    workspaceId = listed[0]?.id ?? '';
-  }
-  if (!workspaceId) {
-    throw new Error('notes_workspace');
-  }
-  const title = (document.getElementById('noteTitle') as HTMLInputElement).value.trim();
-  const speech = cleanSpeech(result.text);
-  const turns = result.turns
-    .map((turn) => ({ ...turn, text: cleanSpeech(turn.text) }))
-    .filter((turn) => turn.text.length > 0);
-  const transcript = [typedNotes.trim(), speech].filter((part) => part.length > 0).join('\n\n');
-  const created = await pith.notes.create(workspaceId, title || null);
-  try {
-    return await pith.notes.stop(
-      created.id,
-      result.durationSeconds,
-      transcript,
-      result.language,
-      turns,
-    );
-  } catch (error) {
-    await pith.notes.cancel(created.id).catch(() => undefined);
-    throw error;
-  }
-}
-
 function showSummary(lines: string[]): void {
   const blocks: string[] = [];
   for (const line of lines) {
@@ -149,45 +111,6 @@ function showSummary(lines: string[]): void {
   body.setSelectionRange(0, 0);
 }
 
-function cleanSpeech(value: string): string {
-  const prompts = [
-    'Transcribe all speech in this application playback from the beginning. Ignore trailing silence. The language may be English or Spanish.',
-    'Transcribe the microphone speech from the beginning to the end. The language may be English or Spanish.',
-    'Transcribe every spoken word from the start of this clip to the end. The audio may include English and Spanish, app playback, and a microphone.',
-  ];
-  let text = value;
-  for (const prompt of prompts) {
-    const escaped = prompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
-    text = text.replace(new RegExp(escaped, 'ig'), ' ');
-  }
-  text = text.replace(/\[[^\]\n]{0,48}\]/g, ' ').replace(/[♪♫♬]+/g, ' ');
-  const words = text
-    .split(/\s+/)
-    .map((token) => token.trim().replace(/[^\p{Script=Latin}\p{N}.,;:!?¿¡'"()\-]/gu, ''))
-    .filter((token) => {
-      const letters = token.replace(/[^\p{L}]/gu, '');
-      const digits = token.replace(/[^\p{N}]/gu, '');
-      if (!letters) {
-        return digits.length > 0;
-      }
-      if (/^(.)\1{3,}$/iu.test(letters)) {
-        return false;
-      }
-      if (letters.length === 1 && !/^[aeiouy]$/i.test(letters)) {
-        return false;
-      }
-      if (letters.length >= 5 && !/[aeiouáéíóúüàèìòùâêîôûäëïöüy]/i.test(letters)) {
-        return false;
-      }
-      return true;
-    });
-  return words
-    .join(' ')
-    .replace(/\s+([.,;:!?])/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function closeSpikeMenu(): void {
   $('spikeMenuPop').hidden = true;
   $('spikeMore').setAttribute('aria-expanded', 'false');
@@ -201,6 +124,11 @@ async function moveToTrash(): Promise<void> {
     await withBusy(async () => {
       pauseTimer();
       await pith.capture.cancel();
+      if (liveNoteId) {
+        await pith.notes.cancel(liveNoteId).catch(() => undefined);
+        liveNoteId = null;
+      }
+      await pith.capture.disarm();
       resetTimer();
     });
     const next = await pith.capture.getState();
@@ -484,6 +412,26 @@ function watchMicrophoneGrant(): void {
   );
 }
 
+let liveNoteId: string | null = null;
+
+async function bindLiveNote(): Promise<void> {
+  if (liveNoteId) {
+    return;
+  }
+  let workspaceId = recordingWorkspace().id;
+  if (!workspaceId) {
+    const listed = await pith.notes.listWorkspaces();
+    workspaceId = listed[0]?.id ?? '';
+  }
+  if (!workspaceId) {
+    return;
+  }
+  const title = (document.getElementById('noteTitle') as HTMLInputElement).value.trim();
+  const created = await pith.notes.create(workspaceId, title || null);
+  liveNoteId = created.id;
+  await pith.capture.arm(created.id);
+}
+
 async function startRecording(): Promise<void> {
   if (captureFinished) {
     return;
@@ -491,6 +439,7 @@ async function startRecording(): Promise<void> {
   resetTimer();
   try {
     applyStart(await pith.capture.start());
+    await bindLiveNote();
   } catch (error) {
     if (errorCode(error) !== 'mic_denied') {
       throw error;
@@ -503,6 +452,7 @@ async function startRecording(): Promise<void> {
     }
     try {
       applyStart(await pith.capture.start());
+    await bindLiveNote();
     } catch (retryError) {
       if (errorCode(retryError) !== 'mic_denied') {
         throw retryError;
@@ -637,18 +587,25 @@ async function init(): Promise<void> {
     void withBusy(async () => {
       awaitingTranscript = true;
       const typedNotes = noteBody().value.trim();
+      await bindLiveNote();
+      if (!liveNoteId) {
+        throw new Error('notes_workspace');
+      }
+      const noteId = liveNoteId;
       try {
-        const result = await pith.capture.stop();
+        const result = await pith.capture.stop(noteId, typedNotes);
+        liveNoteId = null;
         captureFinished = true;
         freezeTimer(recordedSeconds());
         applyLevels({ mic: 0, system: 0 });
-        const saved = await saveGeneratedNote(result, typedNotes);
-        if (saved.summaryText.length > 0) {
-          showSummary(saved.summaryText);
+        if (result.summaryText.length > 0) {
+          showSummary(result.summaryText);
         } else {
           setError('summary_failed');
         }
       } catch (error) {
+        await pith.notes.cancel(noteId).catch(() => undefined);
+        liveNoteId = null;
         if (!captureFinished) {
           freezeTimer(recordedSeconds());
         }

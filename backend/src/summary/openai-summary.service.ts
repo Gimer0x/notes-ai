@@ -42,7 +42,7 @@ The last section is always "${closing}" or "${steps}". Use "${steps}" when the m
           },
           {
             role: 'user',
-            content: transcript.slice(0, 12000),
+            content: transcript.slice(0, 100_000),
           },
         ],
       });

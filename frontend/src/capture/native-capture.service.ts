@@ -88,6 +88,19 @@ export class NativeCaptureService implements CaptureService {
     this.state = 'listening';
   }
 
+  async exportChunk(): Promise<CapturedAudio | null> {
+    const msg = await this.helper.send('export');
+    if (!msg.filePath) {
+      return null;
+    }
+    return {
+      filePath: msg.filePath,
+      durationSeconds: msg.durationSeconds ?? 0,
+      micFilePath: msg.micFilePath,
+      systemFilePath: msg.systemFilePath,
+    };
+  }
+
   async stop(): Promise<CapturedAudio> {
     try {
       const msg = await this.helper.send('stop');

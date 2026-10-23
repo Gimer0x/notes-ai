@@ -28,10 +28,13 @@ contextBridge.exposeInMainWorld('pith', {
     start: () => ipcRenderer.invoke('capture:start'),
     pause: () => ipcRenderer.invoke('capture:pause'),
     resume: () => ipcRenderer.invoke('capture:resume'),
-    stop: () => ipcRenderer.invoke('debug:stopAndTranscribe'),
+    stop: (noteId: string, typedNotes: string) =>
+      ipcRenderer.invoke('debug:stopAndTranscribe', noteId, typedNotes),
     cancel: () => ipcRenderer.invoke('capture:cancel'),
     end: (): Promise<{ durationSeconds: number }> => ipcRenderer.invoke('capture:end'),
     getState: (): Promise<CaptureState> => ipcRenderer.invoke('capture:getState'),
+    arm: (noteId: string): Promise<void> => ipcRenderer.invoke('capture:arm', noteId),
+    disarm: (): Promise<void> => ipcRenderer.invoke('capture:disarm'),
     resend: () => ipcRenderer.invoke('debug:resend'),
     hasLastMix: (): Promise<boolean> => ipcRenderer.invoke('debug:hasLastMix'),
     onLevels: (listener: (levels: CaptureLevels) => void): (() => void) => {
@@ -50,6 +53,15 @@ contextBridge.exposeInMainWorld('pith', {
       ipcRenderer.on('capture:device', handler);
       return () => {
         ipcRenderer.removeListener('capture:device', handler);
+      };
+    },
+    onSliceProgress: (listener: (progress: { done: number; total: number }) => void): (() => void) => {
+      const handler = (_event: unknown, progress: { done: number; total: number }): void => {
+        listener(progress);
+      };
+      ipcRenderer.on('slice:progress', handler);
+      return () => {
+        ipcRenderer.removeListener('slice:progress', handler);
       };
     },
   },
