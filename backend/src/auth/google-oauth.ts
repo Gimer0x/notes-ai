@@ -2,7 +2,27 @@ export type GoogleProfile = {
   subject: string;
   email: string;
   displayName: string | null;
+  picture: string | null;
 };
+
+export function googlePictureUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 2048) {
+    return null;
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  const allowed =
+    host.endsWith('.googleusercontent.com') || host.endsWith('.ggpht.com');
+  if (url.protocol !== 'https:' || !allowed) {
+    return null;
+  }
+  return url.toString();
+}
 
 export async function exchangeGoogleCode(input: {
   clientId: string;
@@ -42,6 +62,7 @@ export async function exchangeGoogleCode(input: {
     sub?: string;
     email?: string;
     name?: string;
+    picture?: string;
     error?: string;
   };
   if (!userResponse.ok || !profile.sub || !profile.email) {
@@ -51,5 +72,6 @@ export async function exchangeGoogleCode(input: {
     subject: profile.sub,
     email: profile.email,
     displayName: profile.name?.trim() || null,
+    picture: googlePictureUrl(profile.picture),
   };
 }

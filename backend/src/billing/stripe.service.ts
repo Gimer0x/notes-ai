@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   OnModuleInit,
@@ -63,7 +64,7 @@ export class StripeService implements OnModuleInit {
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${website}/account?checkout=success`,
+      success_url: `${website}/account?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${website}/pricing`,
       client_reference_id: user.id,
       metadata: { userId: user.id },
@@ -75,6 +76,22 @@ export class StripeService implements OnModuleInit {
       throw new BadRequestException('stripe_session_failed');
     }
     return { url: session.url };
+  }
+
+  async syncSubscription(userId: string, sessionId?: string): Promise<void> {
+    const user = await this.users.findById(userId);
+    if (!user || user.plan_code === 'paid') {
+      return;
+    }
+    const stripe = this.requireStripe();
+    if (sessionId) {
+      await this.syncFromSession(stripe, user.id, sessionId);
+      const updated = await this.users.findById(userId);
+      if (updated?.plan_code === 'paid') {
+        return;
+      }
+    }
+    await this.syncFromEmail(stripe, user.id, user.email);
   }
 
   async handleWebhook(rawBody: Buffer, signature: string | undefined): Promise<void> {
@@ -115,6 +132,73 @@ export class StripeService implements OnModuleInit {
       const user = await this.users.findByStripeCustomerId(customerId);
       await this.applySubscription(subscription, user?.id ?? null);
     }
+  }
+
+  private async syncFromSession(
+    stripe: Stripe,
+    userId: string,
+    sessionId: string,
+  ): Promise<void> {
+    let session: Stripe.Checkout.Session;
+    try {
+      session = await stripe.checkout.sessions.retrieve(sessionId);
+    } catch {
+      return;
+    }
+    if (session.client_reference_id !== userId) {
+      throw new ForbiddenException('checkout_session_user');
+    }
+    await this.applyCheckoutSession(stripe, session, userId);
+  }
+
+  private async syncFromEmail(
+    stripe: Stripe,
+    userId: string,
+    email: string,
+  ): Promise<void> {
+    const customers = await stripe.customers.list({ email, limit: 20 });
+    const matches: { created: number; subscriptionId: string }[] = [];
+    for (const customer of customers.data) {
+      const sessions = await stripe.checkout.sessions.list({
+        customer: customer.id,
+        limit: 20,
+      });
+      for (const session of sessions.data) {
+        if (session.client_reference_id !== userId || session.status !== 'complete') {
+          continue;
+        }
+        const subscriptionId = subscriptionIdOf(session.subscription);
+        if (subscriptionId) {
+          matches.push({ created: session.created, subscriptionId });
+        }
+      }
+    }
+    matches.sort((left, right) => right.created - left.created);
+    for (const match of matches) {
+      const subscription = await stripe.subscriptions.retrieve(match.subscriptionId);
+      if (subscription.status === 'active' || subscription.status === 'trialing') {
+        await this.applySubscription(subscription, userId);
+        return;
+      }
+    }
+    const newest = matches[0];
+    if (newest) {
+      const subscription = await stripe.subscriptions.retrieve(newest.subscriptionId);
+      await this.applySubscription(subscription, userId);
+    }
+  }
+
+  private async applyCheckoutSession(
+    stripe: Stripe,
+    session: Stripe.Checkout.Session,
+    userId: string,
+  ): Promise<void> {
+    const subscriptionId = subscriptionIdOf(session.subscription);
+    if (!subscriptionId || session.status !== 'complete') {
+      return;
+    }
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    await this.applySubscription(subscription, userId);
   }
 
   private async applySubscription(
@@ -180,6 +264,27 @@ export class StripeService implements OnModuleInit {
       'http://localhost:5173'
     );
   }
+
+  async cancelSubscription(subscriptionId: string): Promise<void> {
+    if (!this.stripe) {
+      return;
+    }
+    try {
+      await this.stripe.subscriptions.cancel(subscriptionId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'stripe_cancel_failed';
+      this.logger.warn(`subscription cancel skipped: ${message}`);
+    }
+  }
+}
+
+function subscriptionIdOf(
+  subscription: Stripe.Checkout.Session['subscription'],
+): string | null {
+  if (!subscription) {
+    return null;
+  }
+  return typeof subscription === 'string' ? subscription : subscription.id;
 }
 
 function periodUnix(

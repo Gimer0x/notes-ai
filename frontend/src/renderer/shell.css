@@ -903,31 +903,199 @@ button.icon-btn:hover:not(:disabled) {
 }
 
 .profile {
-  max-width: 420px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  max-width: 720px;
+  width: 100%;
+  margin: 28px auto 0;
+}
+
+.profile-card {
+  position: relative;
+  z-index: 1;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #f7f8fb;
 }
 
 .profile-row {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 56px;
+  padding: 14px 18px;
+  border-bottom: 1px dashed rgba(42, 46, 60, 0.22);
 }
 
-.profile-row dt,
+.profile-row:last-child {
+  border-bottom: none;
+}
+
 .profile-row .title-label {
-  font-size: 0.85rem;
-  color: var(--muted);
+  font-size: 0.95rem;
+  color: var(--ink);
 }
 
 .profile-row p {
   margin: 0;
-  font-size: 1.05rem;
+  text-align: right;
+  color: var(--muted);
 }
 
 .profile #lang {
-  width: max-content;
+  width: auto;
+  min-width: 8rem;
+  text-align: right;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.lang-pick {
+  position: relative;
+  z-index: 2;
+}
+
+.lang-current,
+.lang-options button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+  font-weight: 500;
+  border-radius: 0;
+}
+
+.lang-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.lang-chevron {
+  width: 11px;
+  height: 11px;
+  opacity: 0.65;
+  flex-shrink: 0;
+}
+
+.lang-options {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  z-index: 2;
+}
+
+.lang-options[hidden] {
+  display: none;
+}
+
+.billing,
+.danger-zone {
+  margin-top: 28px;
+}
+
+.profile-photo {
+  display: block;
+  width: 84px;
+  height: 84px;
+  margin: 4px auto 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #f2f3f6;
+}
+
+.profile-photo[hidden] {
+  display: none;
+}
+
+.account h2,
+.billing h2,
+.danger-zone h2 {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.billing-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #f7f8fb;
+}
+
+.billing-kicker {
+  margin: 0 0 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.billing-name {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.billing-detail {
+  margin: 6px 0 0;
+  max-width: 36rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.billing-card button.primary {
+  flex-shrink: 0;
+}
+
+.billing-card button.primary[hidden] {
+  display: none;
+}
+
+.danger-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px 18px;
+  border: 1px solid rgba(139, 46, 46, 0.35);
+  border-radius: 16px;
+  background: #f7f8fb;
+}
+
+.danger-title {
+  margin: 0 0 4px;
+  font-weight: 650;
+}
+
+.danger-card p {
+  margin: 0 0 10px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.danger-card input {
+  width: min(220px, 100%);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.danger-card button {
+  flex-shrink: 0;
+  border-color: rgba(139, 46, 46, 0.45);
+  background: transparent;
+  color: var(--danger);
+}
+
+.danger-card button:hover:not(:disabled) {
+  background: #f8eeee;
 }
 
 .detail ol {

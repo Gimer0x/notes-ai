@@ -20,6 +20,7 @@ export const SCHEMA_STATEMENTS: string[] = [
     google_subject TEXT NOT NULL UNIQUE,
     email TEXT NOT NULL,
     display_name TEXT,
+    avatar_url TEXT,
     plan_code TEXT NOT NULL DEFAULT 'free' REFERENCES plans(code),
     stripe_customer_id TEXT,
     stripe_subscription_id TEXT,
@@ -73,6 +74,7 @@ export const SCHEMA_STATEMENTS: string[] = [
   `ALTER TABLE notes ADD COLUMN IF NOT EXISTS final_seq INTEGER`,
   `ALTER TABLE notes ADD COLUMN IF NOT EXISTS summary_running BOOLEAN NOT NULL DEFAULT false`,
   `ALTER TABLE notes ADD COLUMN IF NOT EXISTS typed_notes TEXT`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT`,
   `CREATE TABLE IF NOT EXISTS note_slices (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     note_id UUID NOT NULL REFERENCES notes(id) ON DELETE CASCADE,

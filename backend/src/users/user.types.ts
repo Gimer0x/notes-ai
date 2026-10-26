@@ -3,6 +3,7 @@ export type UserRow = {
   google_subject: string;
   email: string;
   display_name: string | null;
+  avatar_url: string | null;
   plan_code: 'free' | 'paid';
   created_at: Date;
   stripe_customer_id: string | null;
@@ -15,4 +16,5 @@ export type GoogleIdentity = {
   subject: string;
   email: string;
   displayName: string | null;
+  picture: string | null;
 };

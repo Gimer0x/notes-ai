@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { apiFetch } from '../api';
 import { useAuth } from '../auth/AuthProvider';
 import { useI18n } from '../i18n/I18nProvider';
 import { planLabel } from '../i18n/planLabel';
@@ -10,17 +10,33 @@ export function AccountPage() {
   const { signedIn, me, loading, refresh } = useAuth();
   const [params] = useSearchParams();
   const justPaid = params.get('checkout') === 'success';
+  const sessionId = params.get('session_id');
 
   useEffect(() => {
-    if (!justPaid) {
+    if (!justPaid || !signedIn) {
       return;
     }
-    void refresh();
-    const timer = window.setTimeout(() => {
-      void refresh();
-    }, 2000);
-    return () => window.clearTimeout(timer);
-  }, [justPaid, refresh]);
+    let stopped = false;
+    async function pull(): Promise<void> {
+      await apiFetch('/billing/sync', {
+        method: 'POST',
+        body: JSON.stringify(sessionId ? { sessionId } : {}),
+      }).catch(() => undefined);
+      if (!stopped) {
+        await refresh();
+      }
+    }
+    void pull();
+    const timers = [1500, 4000].map((delay) =>
+      window.setTimeout(() => {
+        void pull();
+      }, delay),
+    );
+    return () => {
+      stopped = true;
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [justPaid, signedIn, refresh, sessionId]);
 
   if (loading) {
     return (
@@ -60,11 +76,14 @@ export function AccountPage() {
         <h1>{justPaid ? t.paidSuccessTitle : t.navAccount}</h1>
         {justPaid ? <p className="lead">{t.paidSuccessBody}</p> : null}
         <p className="lead">
-          {t.signedInAs
-            .replace('{email}', me.email)
-            .replace('{plan}', planLabel(me, t))}
+          {justPaid && me.plan !== 'paid'
+            ? t.paidSuccessPending
+            : t.signedInAs
+                .replace('{email}', me.email)
+                .replace('{plan}', planLabel(me, t))}
         </p>
       </section>
+      {justPaid && me.plan !== 'paid' ? null : (
       <div className="grid pricing-grid">
         <article className="card">
           <h3>{t.remainingTitle}</h3>
@@ -72,6 +91,7 @@ export function AccountPage() {
           <p>{notesLine}</p>
         </article>
       </div>
+      )}
       <p className="footer">{t.footerNote}</p>
     </div>
   );

@@ -46,16 +46,19 @@ type PithApi = {
   auth: {
     login: () => Promise<void>;
     logout: () => Promise<void>;
+    deleteAccount: () => Promise<void>;
     me: () => Promise<{
       id: string;
       email: string;
       displayName: string | null;
+      pictureUrl: string | null;
       plan: 'free' | 'paid';
       planInterval: 'month' | 'year' | null;
       remainingSeconds: number;
       remainingNotes: number | null;
     } | null>;
     upgrade: () => Promise<void>;
+    syncBilling: () => Promise<void>;
   };
   capture: {
     preview: () => Promise<{ systemAudioEnabled: boolean; inputName: string }>;

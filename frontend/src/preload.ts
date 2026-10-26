@@ -7,6 +7,7 @@ type MePayload = {
   id: string;
   email: string;
   displayName: string | null;
+  pictureUrl: string | null;
   plan: 'free' | 'paid';
   planInterval: 'month' | 'year' | null;
   remainingSeconds: number;
@@ -20,8 +21,10 @@ contextBridge.exposeInMainWorld('pith', {
   auth: {
     login: (): Promise<void> => ipcRenderer.invoke('auth:login'),
     logout: (): Promise<void> => ipcRenderer.invoke('auth:logout'),
+    deleteAccount: (): Promise<void> => ipcRenderer.invoke('auth:deleteAccount'),
     me: (): Promise<MePayload | null> => ipcRenderer.invoke('auth:me'),
     upgrade: (): Promise<void> => ipcRenderer.invoke('billing:upgrade'),
+    syncBilling: (): Promise<void> => ipcRenderer.invoke('billing:sync'),
   },
   capture: {
     preview: () => ipcRenderer.invoke('capture:preview'),

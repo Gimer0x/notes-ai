@@ -9,6 +9,6 @@ import { StripeService } from './stripe.service';
   imports: [AuthModule, UsersModule],
   controllers: [BillingController],
   providers: [BillingService, StripeService],
-  exports: [BillingService],
+  exports: [BillingService, StripeService],
 })
 export class BillingModule {}

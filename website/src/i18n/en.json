@@ -48,6 +48,7 @@
   "remainingNotesUnlimited": "Unlimited notes",
   "paidSuccessTitle": "You're paid",
   "paidSuccessBody": "You can close this tab. The Mac app will show Paid after it refreshes your plan.",
+  "paidSuccessPending": "Stripe has the payment. This page will show the paid plan as soon as it is saved.",
   "footerNote": "macOS first. Screen Recording permission is only used to hear other apps, never to save video.",
   "welcomeTitle": "Welcome to Pith",
   "welcomeLead": "Sign in with your Google account to get started.",

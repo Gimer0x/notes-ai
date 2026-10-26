@@ -54,6 +54,7 @@ describe('API contracts (e2e)', () => {
     expect(body).toMatchObject({
       id: user.id,
       email: 'free@example.com',
+      pictureUrl: null,
       plan: 'free',
       planInterval: null,
       remainingNotes: 10,
@@ -138,6 +139,7 @@ describe('API contracts (e2e)', () => {
       .post('/billing/checkout-session')
       .send({ interval: 'month' })
       .expect(401);
+    await request(app.getHttpServer()).post('/billing/sync').send({}).expect(401);
 
     const user = await insertUser(app, {
       email: 'pay@example.com',

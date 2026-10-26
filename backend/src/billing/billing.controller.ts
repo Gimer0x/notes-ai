@@ -31,6 +31,17 @@ export class BillingController {
     return this.stripe.createCheckoutSession(userId, interval);
   }
 
+  @Post('sync')
+  @UseGuards(AuthGuard)
+  @HttpCode(204)
+  async sync(
+    @CurrentUserId() userId: string,
+    @Body() body: { sessionId?: string },
+  ): Promise<void> {
+    const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : '';
+    await this.stripe.syncSubscription(userId, sessionId || undefined);
+  }
+
   @Post('webhook')
   @HttpCode(200)
   async webhook(

@@ -2,6 +2,7 @@ export type MeResponse = {
   id: string;
   email: string;
   displayName: string | null;
+  pictureUrl: string | null;
   plan: 'free' | 'paid';
   planInterval: 'month' | 'year' | null;
   remainingSeconds: number;

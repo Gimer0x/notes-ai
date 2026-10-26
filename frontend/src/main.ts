@@ -267,6 +267,25 @@ ipcMain.handle('i18n:messages', (_event, locale: 'en' | 'es') => {
 ipcMain.handle('config:get', () => loadAppConfig());
 ipcMain.handle('auth:login', () => auth.login());
 ipcMain.handle('auth:logout', () => auth.logout());
+ipcMain.handle('auth:deleteAccount', async () => {
+  const token = await auth.getAccessToken();
+  if (!token) {
+    throw new Error('sign_in_required');
+  }
+  const response = await fetch(`${backendUrl()}/me`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ confirm: 'DELETE' }),
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as { message?: string };
+    throw new Error(payload.message || 'delete_account_failed');
+  }
+  await auth.logout();
+});
 async function signedInUser(): Promise<unknown | null> {
   const token = await auth.getAccessToken();
   if (!token) {
@@ -282,6 +301,20 @@ async function signedInUser(): Promise<unknown | null> {
 }
 
 ipcMain.handle('auth:me', () => signedInUser());
+ipcMain.handle('billing:sync', async () => {
+  const token = await auth.getAccessToken();
+  if (!token) {
+    return;
+  }
+  await fetch(`${backendUrl()}/billing/sync`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: '{}',
+  });
+});
 ipcMain.handle('billing:upgrade', async () => {
   await shell.openExternal(`${websiteUrl()}/pricing`);
 });

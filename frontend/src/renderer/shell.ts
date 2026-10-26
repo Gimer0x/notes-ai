@@ -2,6 +2,8 @@ type NoteStatus = 'ready' | 'processing' | 'failed' | 'listening' | 'paused';
 
 type Me = {
   email: string;
+  displayName?: string | null;
+  pictureUrl?: string | null;
   plan: 'free' | 'paid';
   planInterval: 'month' | 'year' | null;
   remainingSeconds: number;
@@ -408,25 +410,84 @@ async function refreshMe(): Promise<void> {
   }
 }
 
-function fillProfileFields(): void {
-  const email = document.getElementById('profileEmail');
-  const plan = document.getElementById('profilePlan');
-  const minutesEl = document.getElementById('profileMinutes');
-  const upgrade = document.getElementById('upgrade') as HTMLButtonElement | null;
-  if (!email || !plan || !minutesEl) {
+async function refreshPlan(): Promise<void> {
+  if (!me || me.plan !== 'paid') {
+    try {
+      await pith.auth.syncBilling();
+    } catch {
+      // GET /me still shows the plan saved on the account.
+    }
+  }
+  await refreshMe();
+}
+
+function googlePictureUrl(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const allowed =
+      host.endsWith('.googleusercontent.com') || host.endsWith('.ggpht.com');
+    if (url.protocol !== 'https:' || !allowed) {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function showProfilePhoto(user: Me | null): void {
+  const photo = document.getElementById('profilePhoto') as HTMLImageElement | null;
+  if (!photo) {
     return;
   }
+  const src = googlePictureUrl(user?.pictureUrl);
+  if (!user || !src) {
+    photo.hidden = true;
+    photo.removeAttribute('src');
+    return;
+  }
+  photo.alt = user.displayName || user.email;
+  photo.onerror = () => {
+    photo.hidden = true;
+  };
+  photo.src = src;
+  photo.hidden = false;
+}
+
+function planDetail(user: Me | null): string {
+  if (user?.plan === 'paid') {
+    return t.paidCap;
+  }
+  return t.freeCap;
+}
+
+function fillProfileFields(): void {
+  const email = document.getElementById('profileEmail');
+  const plan = document.getElementById('billingPlan');
+  const detail = document.getElementById('billingDetail');
+  const minutesEl = document.getElementById('profileMinutes');
+  const upgrade = document.getElementById('upgrade') as HTMLButtonElement | null;
+  if (!email || !plan || !detail || !minutesEl) {
+    return;
+  }
+  showProfilePhoto(me);
   if (!me) {
     email.textContent = t.signedOut;
-    plan.textContent = '—';
+    plan.textContent = t.planFree;
+    detail.textContent = planDetail(null);
     minutesEl.textContent = '—';
     if (upgrade) {
-      upgrade.hidden = true;
+      upgrade.hidden = false;
     }
     return;
   }
   email.textContent = me.email;
   plan.textContent = planLabel(me);
+  detail.textContent = planDetail(me);
   minutesEl.textContent = t.remainingTime.replace(
     '{minutes}',
     String(Math.floor(me.remainingSeconds / 60)),
@@ -436,16 +497,31 @@ function fillProfileFields(): void {
   }
 }
 
-function bindLangSelect(select: HTMLSelectElement): void {
-  select.setAttribute('aria-label', t.language);
-  select.options[0].textContent = t.langEn;
-  select.options[1].textContent = t.langEs;
-  select.value = locale;
-  select.addEventListener('change', async (event) => {
-    locale = (event.target as HTMLSelectElement).value as Locale;
-    t = await pith.getMessages(locale);
-    applyCopy();
-    await refreshMe();
+function bindLangPicker(): void {
+  const current = document.getElementById('langCurrent') as HTMLButtonElement | null;
+  const options = document.getElementById('langOptions');
+  const label = document.getElementById('langCurrentLabel');
+  if (!current || !options || !label) {
+    return;
+  }
+  label.textContent = locale === 'es' ? t.langEs : t.langEn;
+  current.addEventListener('click', () => {
+    options.hidden = !options.hidden;
+  });
+  options.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
+    button.addEventListener('click', () => {
+      const next = button.dataset.lang === 'es' ? 'es' : 'en';
+      options.hidden = true;
+      if (next === locale) {
+        return;
+      }
+      void (async () => {
+        locale = next;
+        t = await pith.getMessages(locale);
+        applyCopy();
+        await refreshMe();
+      })();
+    });
   });
 }
 
@@ -781,34 +857,103 @@ function renderProfile(): void {
   setStaticTitle(t.profile);
   $('view').innerHTML = `
     <div class="profile">
-      <div class="profile-row">
-        <span class="title-label">${t.profileEmail}</span>
-        <p id="profileEmail"></p>
+      <img id="profilePhoto" class="profile-photo" alt="" hidden />
+      <section class="account">
+      <h2>${escapeHtml(t.account)}</h2>
+      <div class="profile-card">
+        <div class="profile-row">
+          <span class="title-label">${t.profileEmail}</span>
+          <p id="profileEmail"></p>
+        </div>
+        <div class="profile-row">
+          <span class="title-label">${t.profileMinutes}</span>
+          <p id="profileMinutes"></p>
+        </div>
+        <div class="profile-row">
+          <span class="title-label">${t.language}</span>
+          <div class="lang-pick">
+            <button type="button" class="lang-current" id="langCurrent">
+              <span id="langCurrentLabel"></span>
+              <svg class="lang-chevron" viewBox="0 0 12 12" aria-hidden="true">
+                <path d="M2.2 4.2 6 8l3.8-3.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+            <div class="lang-options" id="langOptions" hidden>
+              <button type="button" data-lang="en">${escapeHtml(t.langEn)}</button>
+              <button type="button" data-lang="es">${escapeHtml(t.langEs)}</button>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="profile-row">
-        <span class="title-label">${t.profilePlan}</span>
-        <p id="profilePlan"></p>
-      </div>
-      <div class="profile-row">
-        <span class="title-label">${t.profileMinutes}</span>
-        <p id="profileMinutes"></p>
-      </div>
-      <div class="profile-row">
-        <label class="title-label" for="lang">${t.language}</label>
-        <select id="lang">
-          <option value="en"></option>
-          <option value="es"></option>
-        </select>
-      </div>
-      <div class="detail-actions">
-        <button type="button" class="primary" id="upgrade" hidden></button>
-      </div>
+      </section>
+      <section class="billing">
+        <h2>${escapeHtml(t.billing)}</h2>
+        <div class="billing-card">
+          <div>
+            <p class="billing-kicker">${escapeHtml(t.billingActive)}</p>
+            <p class="billing-name" id="billingPlan"></p>
+            <p class="billing-detail" id="billingDetail"></p>
+          </div>
+          <button type="button" class="primary" id="upgrade">${escapeHtml(t.upgrade)}</button>
+        </div>
+      </section>
+      ${
+        me
+          ? `<section class="danger-zone">
+        <h2>${escapeHtml(t.dangerZone)}</h2>
+        <div class="danger-card">
+          <div>
+            <p class="danger-title">${escapeHtml(t.deleteAccount)}</p>
+            <div id="deleteAccountConfirm" hidden>
+              <p>${escapeHtml(t.deleteAccountBody)}</p>
+              <input id="deleteAccountWord" autocomplete="off" spellcheck="false" />
+            </div>
+          </div>
+          <button type="button" id="deleteAccount">${escapeHtml(t.deleteAccount)}</button>
+          <button type="button" id="deleteAccountGo" hidden disabled>${escapeHtml(t.deleteAccountConfirm)}</button>
+        </div>
+      </section>`
+          : ''
+      }
     </div>
   `;
   fillProfileFields();
   $('upgrade').textContent = t.upgrade;
   $('upgrade').addEventListener('click', () => pith.auth.upgrade());
-  bindLangSelect(document.getElementById('lang') as HTMLSelectElement);
+  bindLangPicker();
+  const deleteAccount = document.getElementById('deleteAccount') as HTMLButtonElement | null;
+  const deleteGo = document.getElementById('deleteAccountGo') as HTMLButtonElement | null;
+  const deleteConfirm = document.getElementById('deleteAccountConfirm');
+  const deleteWord = document.getElementById('deleteAccountWord') as HTMLInputElement | null;
+  if (deleteAccount && deleteGo && deleteConfirm && deleteWord) {
+    deleteAccount.addEventListener('click', () => {
+      deleteAccount.hidden = true;
+      deleteConfirm.hidden = false;
+      deleteGo.hidden = false;
+      deleteWord.value = '';
+      deleteWord.focus();
+    });
+    deleteWord.addEventListener('input', () => {
+      deleteGo.disabled = deleteWord.value !== 'DELETE';
+    });
+    deleteGo.addEventListener('click', () => {
+      if (deleteWord.value !== 'DELETE') {
+        return;
+      }
+      void (async () => {
+        await abandonListen();
+        await pith.auth.deleteAccount();
+        await refreshMe();
+        notes = [];
+        workspaces = [];
+        view = { name: 'home' };
+        resetAsk();
+        render();
+      })().catch((error: unknown) => {
+        setMainError(apiMessage(error));
+      });
+    });
+  }
 }
 
 function renderWorkspace(id: string): void {
@@ -1329,7 +1474,7 @@ function render(): void {
   $('homeBtn').classList.toggle('active', view.name === 'home');
   $('profileBtn').classList.toggle('active', view.name === 'profile');
   document.querySelector('.topbar')?.classList.toggle('welcome-mode', !me && view.name === 'home');
-  $('askDock').hidden = !me;
+  $('askDock').hidden = !me || view.name === 'profile';
   renderWorkspaces();
   if (view.name === 'home') {
     renderHome();
@@ -1368,10 +1513,10 @@ async function init(): Promise<void> {
   locale = await pith.getLocale();
   t = await pith.getMessages(locale);
   applyCopy();
-  await refreshMe();
+  await refreshPlan();
   $('signIn').addEventListener('click', async () => {
     await pith.auth.login();
-    await refreshMe();
+    await refreshPlan();
     try {
       await reloadLists();
     } catch (error) {
@@ -1401,7 +1546,12 @@ async function init(): Promise<void> {
   });
   $('profileBtn').addEventListener('click', () => {
     view = { name: 'profile' };
-    render();
+    void refreshPlan()
+      .then(() => render())
+      .catch((error: unknown) => {
+        setMainError(apiMessage(error));
+        render();
+      });
   });
   $('search').addEventListener('input', (event) => {
     searchQuery = (event.target as HTMLInputElement).value;
@@ -1476,7 +1626,7 @@ async function init(): Promise<void> {
       return;
     }
     void (async () => {
-      await refreshMe();
+      await refreshPlan();
       if (liveNoteId) {
         return;
       }

@@ -150,7 +150,7 @@ Keep this shape. Table names may differ; relationships must not.
 
 ### `users`
 
-- `id`, Google subject, email, display name
+- `id`, Google subject, email, display name, `avatar_url` (Google profile photo, saved on sign-in, nullable)
 - `plan_code` → `plans.code`, default `free`
 - `stripe_customer_id`, `stripe_subscription_id` (nullable)
 - `stripe_price_id` (which price they subscribed to)
