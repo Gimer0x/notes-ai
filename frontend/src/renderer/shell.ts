@@ -271,11 +271,6 @@ function formatNoteDateTime(note: Note): string {
   return `${date} · ${formatNoteTime(note)}`;
 }
 
-function formatNoteDay(note: Note): string {
-  const when = noteWhen(note);
-  return `${when.getDate()}/${when.getMonth() + 1}/${when.getFullYear()}`;
-}
-
 function symbolBody(icon: string | undefined): string {
   return WORKSPACE_SYMBOLS.find((item) => item.id === icon)?.body ?? WORKSPACE_SYMBOLS[0].body;
 }
@@ -1313,14 +1308,7 @@ function showNoteWhen(): void {
   const titled = view.name === 'note' || view.name === 'transcript';
   $('backHome').hidden = !titled;
   $('noteWhen').parentElement?.classList.toggle('align-title', titled);
-  const titleDate = $('titleDate');
-  if (!note || !titled) {
-    titleDate.hidden = true;
-    titleDate.textContent = '';
-  } else {
-    titleDate.hidden = false;
-    titleDate.textContent = ` - ${formatNoteDay(note)}`;
-  }
+  $('titleDate').hidden = true;
   if (!note) {
     slot.hidden = true;
     slot.textContent = '';
@@ -1574,9 +1562,6 @@ function renderStructuredTodos(text: string): string | null {
     return null;
   }
   const lines = text.split('\n');
-  const from = lines[1]?.startsWith('from ') ? lines[1].slice(5).trim() : '';
-  const to = lines[2]?.startsWith('to ') ? lines[2].slice(3).trim() : '';
-  const title = t.askTodoRange.replace('{from}', formatTodoDay(from)).replace('{to}', formatTodoDay(to));
   const groups: { title: string; when: string; items: { text: string; due: string }[] }[] = [];
   let index = 3;
   while (index < lines.length) {
@@ -1616,7 +1601,7 @@ function renderStructuredTodos(text: string): string | null {
             return `<section class="ask-todo-group"><h3 class="ask-todo-head">${escapeHtml(group.title)}<span class="ask-todo-when"> - ${escapeHtml(formatTodoDay(group.when))}</span></h3><ul class="ask-todos">${items}</ul></section>`;
           })
           .join('');
-  return `<div class="ask-turn assistant"><p class="ask-todo-title">${escapeHtml(title)}</p>${body}</div>`;
+  return `<div class="ask-turn assistant">${body}</div>`;
 }
 
 function todoItems(text: string): string[] | null {
@@ -1770,6 +1755,10 @@ function bindAsk(): void {
   renderAsk();
 }
 
+function openNoteId(): string | null {
+  return view.name === 'note' || view.name === 'transcript' ? view.noteId : null;
+}
+
 async function sendAsk(text: string): Promise<void> {
   const trimmed = text.trim();
   if (!trimmed || askBusy) {
@@ -1794,7 +1783,7 @@ async function sendAsk(text: string): Promise<void> {
   const epoch = askEpoch;
   renderAsk();
   try {
-    const result = await pith.ask.send(askMessages, askSessionFiles);
+    const result = await pith.ask.send(askMessages, askSessionFiles, openNoteId());
     if (epoch !== askEpoch) {
       return;
     }

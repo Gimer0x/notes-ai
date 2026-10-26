@@ -370,7 +370,8 @@ ipcMain.handle(
     _event,
     messages: { role: 'user' | 'assistant'; text: string }[],
     attachments: { name: string; mime: string; dataBase64: string }[],
-  ) => askApi.send(messages, attachments),
+    noteId?: string | null,
+  ) => askApi.send(messages, attachments, noteId),
 );
 ipcMain.handle(
   'ask:transcribe',

@@ -108,6 +108,7 @@ type PithApi = {
     send: (
       messages: { role: 'user' | 'assistant'; text: string }[],
       attachments: { name: string; mime: string; dataBase64: string }[],
+      noteId?: string | null,
     ) => Promise<{ answer: string }>;
     transcribe: (dataBase64: string, mime: string, name: string) => Promise<{ text: string }>;
   };

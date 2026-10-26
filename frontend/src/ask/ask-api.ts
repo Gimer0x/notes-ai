@@ -10,8 +10,12 @@ export class AskApi {
     private readonly token: () => Promise<string | null>,
   ) {}
 
-  send(messages: AskTurn[], attachments: AskAttachment[]): Promise<{ answer: string }> {
-    return this.request('/ask', { messages, attachments });
+  send(
+    messages: AskTurn[],
+    attachments: AskAttachment[],
+    noteId?: string | null,
+  ): Promise<{ answer: string }> {
+    return this.request('/ask', { messages, attachments, noteId: noteId ?? null });
   }
 
   transcribe(dataBase64: string, mime: string, name: string): Promise<{ text: string }> {

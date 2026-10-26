@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { readFile, unlink, writeFile } from 'fs/promises';
 import * as path from 'path';
 import { app, BrowserWindow, safeStorage, shell } from 'electron';
-import { backendUrl, googleDesktopClientId } from '../env';
+import { backendUrl, googleDesktopClientId, websiteUrl } from '../env';
 
 const LOGIN_TIMEOUT_MS = 3 * 60 * 1000;
 
@@ -106,6 +106,7 @@ async function startLoopback(expectedState: string): Promise<{
     resolveCode = resolve;
     rejectCode = reject;
   });
+  let pageLang: 'en' | 'es' = 'en';
   const finish = (ok: boolean): void => {
     if (finished) {
       return;
@@ -114,7 +115,7 @@ async function startLoopback(expectedState: string): Promise<{
     if (pendingRes && !pendingRes.writableEnded) {
       pendingRes.statusCode = ok ? 200 : 400;
       pendingRes.setHeader('Content-Type', 'text/html; charset=utf-8');
-      pendingRes.end(closePage(ok));
+      pendingRes.end(closePage(ok, pageLang));
     }
     server.close();
   };
@@ -126,6 +127,9 @@ async function startLoopback(expectedState: string): Promise<{
       res.end();
       return;
     }
+    const header = req.headers['accept-language'];
+    const accept = Array.isArray(header) ? header.join(',') : header ?? '';
+    pageLang = accept.toLowerCase().includes('es') ? 'es' : 'en';
     const error = url.searchParams.get('error');
     const state = url.searchParams.get('state');
     const code = url.searchParams.get('code');
@@ -180,22 +184,101 @@ function addressPort(server: ReturnType<typeof createServer>): number {
   return addr.port;
 }
 
-function closePage(ok: boolean): string {
-  const styles = `body{font-family:system-ui,sans-serif;background:#FAF7F1;color:#1c1c19;max-width:36rem;margin:4rem auto;padding:0 1.5rem;line-height:1.45}h1{font-size:1.35rem;font-weight:650}p{color:#5c5c56}`;
-  if (ok) {
-    return `<!doctype html><html><head><meta charset="utf-8"><title>Pith</title><style>${styles}</style></head><body>
-      <h1>You're signed in to the Mac app</h1>
-      <p>Switch back to Pith to see your email and plan. You can close this tab.</p>
-      <h1>Sesión iniciada en la app de Mac</h1>
-      <p>Vuelve a Pith para ver tu correo y el plan. Puedes cerrar esta pestaña.</p>
-      <script>setTimeout(() => window.close(), 600);</script>
-    </body></html>`;
-  }
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Pith</title><style>${styles}</style></head><body>
-    <h1>Sign-in did not finish</h1>
-    <p>Return to the Mac app and try again. You can close this tab.</p>
-    <h1>No se pudo iniciar sesión</h1>
-    <p>Vuelve a la app de Mac e inténtalo de nuevo. Puedes cerrar esta pestaña.</p>
-    <script>setTimeout(() => window.close(), 600);</script>
-  </body></html>`;
+function closePage(ok: boolean, lang: 'en' | 'es'): string {
+  const site = escapeHtml(websiteUrl());
+  const copy =
+    lang === 'es'
+      ? ok
+        ? {
+            title: 'Abriendo Pith...',
+            lead: 'Pith debería pasar al frente. Puedes cerrar esta pestaña.',
+            fallback: `¿No pasó nada? Vuelve a la ventana de Pith, o si nunca la has abierto <a href="${site}">descárgala aquí</a>.`,
+          }
+        : {
+            title: 'No se pudo iniciar sesión',
+            lead: 'Vuelve a la app de Mac e inténtalo de nuevo.',
+            fallback: 'Puedes cerrar esta pestaña.',
+          }
+      : ok
+        ? {
+            title: 'Opening Pith...',
+            lead: 'Pith should come to the front. You can close this tab.',
+            fallback: `Nothing happened? Switch back to the Pith window, or if you have never opened it <a href="${site}">download it here</a>.`,
+          }
+        : {
+            title: 'Sign-in did not finish',
+            lead: 'Return to the Mac app and try again.',
+            fallback: 'You can close this tab.',
+          };
+  return `<!doctype html>
+<html lang="${lang}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${copy.title}</title>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      background: #f6f4ef;
+      color: #2a2e3c;
+      font-family: "Iowan Old Style", Palatino, Georgia, serif;
+      text-align: center;
+      padding: 32px 20px;
+    }
+    main { max-width: 40rem; }
+    .check {
+      width: 54px;
+      height: 54px;
+      margin: 0 auto 28px;
+      border-radius: 50%;
+      background: #2537d5;
+      display: grid;
+      place-items: center;
+    }
+    .check span {
+      width: 14px;
+      height: 8px;
+      border-left: 3px solid #fff;
+      border-bottom: 3px solid #fff;
+      transform: rotate(-45deg) translate(1px, -1px);
+    }
+    h1 {
+      margin: 0 0 22px;
+      font-size: clamp(2.6rem, 6vw, 4.2rem);
+      font-weight: 500;
+      letter-spacing: -0.03em;
+    }
+    p {
+      margin: 0 auto 18px;
+      max-width: 34rem;
+      color: #8a8278;
+      font-family: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
+      font-size: 1.2rem;
+      line-height: 1.45;
+    }
+    a { color: #5c6570; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="check" aria-hidden="true"><span></span></div>
+    <h1>${copy.title}</h1>
+    <p>${copy.lead}</p>
+    <p>${copy.fallback}</p>
+  </main>
+</body>
+</html>`;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
 }

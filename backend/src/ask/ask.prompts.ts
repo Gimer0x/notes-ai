@@ -22,9 +22,13 @@ export function buildChatMessages(
   meetings: MeetingSnippet[],
   turns: AskTurn[],
   files: AskFile[],
+  focusNoteId?: string,
 ): ChatMessage[] {
-  const context = buildMeetingContext(meetings);
-  const system = `You answer questions about the user's past meetings. Use only the meeting notes below and any files attached to the latest question. If the notes do not contain the answer, say so. Reply in the language of the question. When you use a meeting, name it. For a request about todos or next steps, list the follow-ups from the summaries, newest first, one item per line. Do not start a line with a hyphen, dash, asterisk, or number. Do not use markdown.
+  const context = buildMeetingContext(meetings, 24000, focusNoteId);
+  const focus = focusNoteId
+    ? 'The first note is the one the user has open. Answer from that note. Use another note only when the question names it, compares meetings, or cannot be answered from the open note. '
+    : '';
+  const system = `You answer questions about the user's past meetings. ${focus}Use only the meeting notes below and any files attached to the latest question. If the notes do not contain the answer, say so. Reply in the language of the question. When you use a meeting, name it. For a request about todos or next steps, list the follow-ups from the summaries, newest first, one item per line. Do not start a line with a hyphen, dash, asterisk, or number. Do not use markdown.
 Meeting notes:
 ${context || '(none yet)'}`;
   const messages: ChatMessage[] = [{ role: 'system', content: system }];

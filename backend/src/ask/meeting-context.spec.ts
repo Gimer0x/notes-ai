@@ -3,6 +3,33 @@ import { buildMeetingContext } from './meeting-context';
 import { extractPdfText } from './pdf-text';
 
 describe('buildMeetingContext', () => {
+  it('puts the open note first and still keeps room for another meeting', () => {
+    const context = buildMeetingContext(
+      [
+        {
+          id: 'newer',
+          title: 'Standup',
+          workspace: 'Personal',
+          when: '2026-10-21',
+          summary: 'Ship the draft.',
+          transcript: '',
+        },
+        {
+          id: 'open-note',
+          title: 'Maricela colors',
+          workspace: 'Personal',
+          when: '2026-10-17',
+          summary: 'Marisela will look up the colors.',
+          transcript: '',
+        },
+      ],
+      24000,
+      'open-note',
+    );
+    expect(context.startsWith('Open note: Maricela colors')).toBe(true);
+    expect(context).toContain('Meeting: Standup');
+  });
+
   it('keeps the newest meetings until the character budget is full', () => {
     const context = buildMeetingContext(
       [

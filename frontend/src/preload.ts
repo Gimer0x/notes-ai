@@ -99,7 +99,8 @@ contextBridge.exposeInMainWorld('pith', {
     send: (
       messages: { role: 'user' | 'assistant'; text: string }[],
       attachments: { name: string; mime: string; dataBase64: string }[],
-    ) => ipcRenderer.invoke('ask:send', messages, attachments),
+      noteId?: string | null,
+    ) => ipcRenderer.invoke('ask:send', messages, attachments, noteId),
     transcribe: (dataBase64: string, mime: string, name: string) =>
       ipcRenderer.invoke('ask:transcribe', dataBase64, mime, name),
   },

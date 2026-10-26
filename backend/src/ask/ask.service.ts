@@ -35,7 +35,12 @@ export class AskService {
     private readonly config: ConfigService,
   ) {}
 
-  async ask(userId: string, turns: AskTurn[], files: AskFile[]): Promise<{ answer: string }> {
+  async ask(
+    userId: string,
+    turns: AskTurn[],
+    files: AskFile[],
+    focusNoteId?: string | null,
+  ): Promise<{ answer: string }> {
     const history = cleanTurns(turns);
     const attachments = cleanFiles(files);
     if (process.env.NODE_ENV === 'test') {
@@ -51,6 +56,7 @@ export class AskService {
     }
     const model = this.config.get<string>('OPENAI_SUMMARY_MODEL')?.trim() || DEFAULT_MODEL;
     const meetings = await this.loadMeetings(userId);
+    const focus = focusNoteId && meetings.some((meeting) => meeting.id === focusNoteId) ? focusNoteId : undefined;
     const openai = new OpenAI({ apiKey });
     try {
       const completion = await openai.chat.completions.create({
@@ -60,6 +66,7 @@ export class AskService {
           meetings,
           history,
           attachments,
+          focus,
         ) as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParams['messages'],
       });
       const answer = completion.choices[0]?.message?.content?.trim() ?? '';
@@ -111,13 +118,14 @@ export class AskService {
 
   private async loadMeetings(userId: string): Promise<MeetingSnippet[]> {
     const result = await this.db.query<{
+      id: string;
       title: string | null;
       summary_text: string | null;
       transcript_text: string | null;
       created_at: Date;
       workspace_name: string;
     }>(
-      `SELECT n.title, n.summary_text, n.transcript_text, n.created_at, w.name AS workspace_name
+      `SELECT n.id, n.title, n.summary_text, n.transcript_text, n.created_at, w.name AS workspace_name
        FROM notes n
        JOIN workspaces w ON w.id = n.workspace_id
        WHERE n.user_id = $1
@@ -127,6 +135,7 @@ export class AskService {
       [userId],
     );
     return result.rows.map((row) => ({
+      id: row.id,
       title: row.title ?? '',
       workspace: row.workspace_name,
       when: row.created_at.toISOString(),

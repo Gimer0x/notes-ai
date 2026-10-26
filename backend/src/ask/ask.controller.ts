@@ -4,6 +4,12 @@ import { CurrentUserId } from '../auth/current-user';
 import { AskService } from './ask.service';
 import type { AskFile, AskTurn } from './ask.prompts';
 
+const NOTE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function cleanNoteId(value: unknown): string | null {
+  return typeof value === 'string' && NOTE_ID.test(value) ? value : null;
+}
+
 @Controller('ask')
 @UseGuards(AuthGuard)
 export class AskController {
@@ -13,9 +19,9 @@ export class AskController {
   @HttpCode(200)
   answer(
     @CurrentUserId() userId: string,
-    @Body() body: { messages?: AskTurn[]; attachments?: AskFile[] },
+    @Body() body: { messages?: AskTurn[]; attachments?: AskFile[]; noteId?: string },
   ): Promise<{ answer: string }> {
-    return this.ask.ask(userId, body.messages ?? [], body.attachments ?? []);
+    return this.ask.ask(userId, body.messages ?? [], body.attachments ?? [], cleanNoteId(body.noteId));
   }
 
   @Post('voice')
