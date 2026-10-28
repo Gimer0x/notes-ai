@@ -10,9 +10,11 @@ import { HealthModule } from './health/health.module';
 import { MeModule } from './me/me.module';
 import { NotesModule } from './notes/notes.module';
 import { AuthModule } from './auth/auth.module';
+import { ShareModule } from './mail/share.module';
 import { SpikeModule } from './spike/spike.module';
 import { SlicesModule } from './slices/slices.module';
 import { TranscribeModule } from './transcribe/transcribe.module';
+
 
 const envFile = process.env.NODE_ENV === 'test' ? '.env.test' : '.env';
 loadEnv({ path: envFile });
@@ -27,6 +29,7 @@ loadEnv({ path: envFile });
     MeModule,
     BillingModule,
     NotesModule,
+    ShareModule,
     SlicesModule,
     AskModule,
     TranscribeModule,

@@ -201,6 +201,9 @@ function apiMessage(error: unknown): string {
   if (code.includes('mic_denied')) {
     return t.errorMicDenied;
   }
+  if (code.includes('mail_not_configured')) {
+    return t.errorMailNotConfigured;
+  }
   return t.errorGeneric;
 }
 
@@ -466,17 +469,19 @@ function planDetail(user: Me | null): string {
 }
 
 function fillProfileFields(): void {
-  const email = document.getElementById('profileEmail');
+  const nameEl = document.getElementById('profileName');
+  const emailLead = document.getElementById('profileEmailLead');
   const plan = document.getElementById('billingPlan');
   const detail = document.getElementById('billingDetail');
   const minutesEl = document.getElementById('profileMinutes');
   const upgrade = document.getElementById('upgrade') as HTMLButtonElement | null;
-  if (!email || !plan || !detail || !minutesEl) {
+  if (!nameEl || !emailLead || !plan || !detail || !minutesEl) {
     return;
   }
   showProfilePhoto(me);
   if (!me) {
-    email.textContent = t.signedOut;
+    nameEl.textContent = t.signedOut;
+    emailLead.textContent = '';
     plan.textContent = t.planFree;
     detail.textContent = planDetail(null);
     minutesEl.textContent = '—';
@@ -485,7 +490,8 @@ function fillProfileFields(): void {
     }
     return;
   }
-  email.textContent = me.email;
+  nameEl.textContent = (me.displayName ?? '').trim() || me.email.split('@')[0] || me.email;
+  emailLead.textContent = me.email;
   plan.textContent = planLabel(me);
   detail.textContent = planDetail(me);
   minutesEl.textContent = t.remainingTime.replace(
@@ -857,14 +863,14 @@ function renderProfile(): void {
   setStaticTitle(t.profile);
   $('view').innerHTML = `
     <div class="profile">
-      <img id="profilePhoto" class="profile-photo" alt="" hidden />
+      <div class="profile-identity">
+        <img id="profilePhoto" class="profile-photo" alt="" hidden />
+        <p class="profile-name" id="profileName"></p>
+        <p class="profile-email-lead" id="profileEmailLead"></p>
+      </div>
       <section class="account">
       <h2>${escapeHtml(t.account)}</h2>
       <div class="profile-card">
-        <div class="profile-row">
-          <span class="title-label">${t.profileEmail}</span>
-          <p id="profileEmail"></p>
-        </div>
         <div class="profile-row">
           <span class="title-label">${t.profileMinutes}</span>
           <p id="profileMinutes"></p>
@@ -1092,6 +1098,87 @@ function bindCopy(text: string, label: string): void {
   };
 }
 
+function parseShareEmails(raw: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(/[\s,;]+/)) {
+    const email = part.trim().toLowerCase();
+    if (!email || seen.has(email) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      continue;
+    }
+    seen.add(email);
+    out.push(email);
+    if (out.length >= 10) {
+      break;
+    }
+  }
+  return out;
+}
+
+function closeShareDialog(): void {
+  $('shareDialog').hidden = true;
+  const area = document.getElementById('shareEmails') as HTMLTextAreaElement | null;
+  if (area) {
+    area.value = '';
+  }
+}
+
+function openShareDialog(noteId: string): void {
+  const dialog = $('shareDialog');
+  const title = $('shareTitle');
+  const body = $('shareBody');
+  const area = document.getElementById('shareEmails') as HTMLTextAreaElement;
+  const send = document.getElementById('shareSend') as HTMLButtonElement;
+  const cancel = document.getElementById('shareCancel') as HTMLButtonElement;
+  title.textContent = t.shareTitle;
+  body.textContent = t.shareBody;
+  area.placeholder = t.shareEmailsPlaceholder;
+  area.value = '';
+  send.textContent = t.shareSend;
+  cancel.textContent = t.shareCancel;
+  send.disabled = false;
+  cancel.onclick = () => closeShareDialog();
+  send.onclick = () => {
+    const emails = parseShareEmails(area.value);
+    if (emails.length === 0) {
+      setMainError(t.shareBody);
+      return;
+    }
+    send.disabled = true;
+    void pith.notes
+      .share(noteId, emails)
+      .then(() => {
+        closeShareDialog();
+        setMainError('');
+        setMainError(t.shareSent);
+        window.setTimeout(() => {
+          if ($('mainError').textContent === t.shareSent) {
+            setMainError('');
+          }
+        }, 2500);
+      })
+      .catch((error: unknown) => {
+        send.disabled = false;
+        setMainError(apiMessage(error));
+      });
+  };
+  dialog.hidden = false;
+  area.focus();
+}
+
+function bindShare(note: Note, hasSummary: boolean): void {
+  const share = $('shareSummary') as HTMLButtonElement;
+  const canShare = note.status === 'ready' && hasSummary;
+  share.hidden = !canShare;
+  share.setAttribute('aria-label', t.shareSummary);
+  share.onclick = () => {
+    if (!canShare) {
+      return;
+    }
+    openShareDialog(note.id);
+  };
+}
+
 function copyWithSelection(text: string): void {
   const area = document.createElement('textarea');
   area.value = text;
@@ -1181,6 +1268,7 @@ function renderNote(workspaceId: string, noteId: string): void {
     </div>
   `;
   bindCopy(summaryPlainText(lines), t.copySummary);
+  bindShare(note, lines.length > 0);
   const showTranscript = $('showTranscript') as HTMLButtonElement;
   showTranscript.hidden = !hasTranscript;
   showTranscript.textContent = t.showTranscript;
@@ -1449,6 +1537,7 @@ function showNoteWhen(): void {
   }
   if (!note || view.name !== 'note') {
     $('copySummary').hidden = true;
+    $('shareSummary').hidden = true;
   }
   const titled = view.name === 'note' || view.name === 'transcript';
   $('backHome').hidden = !titled;
@@ -1563,6 +1652,10 @@ async function init(): Promise<void> {
         closeConfirm();
         return;
       }
+      if (!$('shareDialog').hidden) {
+        closeShareDialog();
+        return;
+      }
       closeMenus();
       if (addingWorkspace) {
         hideAddWorkspaceForm();
@@ -1618,6 +1711,11 @@ async function init(): Promise<void> {
   $('confirmDialog').addEventListener('click', (event) => {
     if (event.target === $('confirmDialog')) {
       closeConfirm();
+    }
+  });
+  $('shareDialog').addEventListener('click', (event) => {
+    if (event.target === $('shareDialog')) {
+      closeShareDialog();
     }
   });
   document.addEventListener('click', () => closeMenus());

@@ -11,5 +11,7 @@ import { WorkspacesService } from './workspaces.service';
   imports: [AuthModule, BillingModule, SummaryModule],
   controllers: [WorkspacesController, NotesController],
   providers: [WorkspacesService, NotesService],
+  exports: [NotesService],
 })
 export class NotesModule {}
+

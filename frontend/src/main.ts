@@ -397,6 +397,9 @@ ipcMain.handle(
   ) => notesApi.stopNote(id, durationSeconds, transcriptText, language, turns),
 );
 ipcMain.handle('notes:retry', (_event, id: string) => notesApi.retryNote(id));
+ipcMain.handle('notes:share', (_event, id: string, emails: string[]) =>
+  notesApi.shareNote(id, emails),
+);
 ipcMain.handle(
   'ask:send',
   (
@@ -447,9 +450,30 @@ async function uploadCaptured(
   }
   const config = await loadAppConfig();
   const chunkSeconds = config.wavChunkSeconds > 0 ? config.wavChunkSeconds : 600;
-  const pieces = splitLongSegments(segmentTracks(mic, system, mix), chunkSeconds);
+  const durationSeconds = Number(captured.durationSeconds) || 0;
+  const segmented = segmentTracks(mic, system, mix);
+  // Quiet speech can fall below the segment peak floor; never seal with zero slices
+  // when we still have a mix (spike path already does the same).
+  const toUpload =
+    segmented.length > 0
+      ? segmented
+      : mix.length > 44
+        ? [
+            {
+              source: 'mix' as const,
+              startSec: 0,
+              endSec: durationSeconds,
+              peak: 0,
+              wav: mix,
+            },
+          ]
+        : [];
+  if (segmented.length === 0 && toUpload.length > 0) {
+    logFrontend(`slices fallback mix sec=${durationSeconds.toFixed(1)}`);
+  }
+  const pieces = splitLongSegments(toUpload, chunkSeconds);
   const offset = audioOffsetSec;
-  audioOffsetSec += Number(captured.durationSeconds) || 0;
+  audioOffsetSec += durationSeconds;
   for (const piece of pieces) {
     const seq = nextSliceSeq;
     nextSliceSeq += 1;

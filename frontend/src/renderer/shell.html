@@ -116,6 +116,22 @@
             <p class="note-when" id="noteWhen" hidden></p>
             <div class="detail-actions" id="noteMove" hidden></div>
             <button type="button" class="text-btn" id="showTranscript" hidden></button>
+            <button type="button" class="icon-btn" id="shareSummary" hidden>
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M4 11.5 20 4l-4.5 16-4-6.5L4 11.5Z"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M11.5 13.5 20 4"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
             <button type="button" class="icon-btn" id="copySummary" hidden>
               <svg class="copy-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="2" />
@@ -205,6 +221,17 @@
         <div class="modal-actions">
           <button type="button" id="confirmCancel"></button>
           <button type="button" class="danger" id="confirmOk"></button>
+        </div>
+      </div>
+    </div>
+    <div class="modal" id="shareDialog" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="shareTitle">
+        <h2 id="shareTitle"></h2>
+        <p id="shareBody"></p>
+        <textarea id="shareEmails" rows="4" autocomplete="off" spellcheck="false"></textarea>
+        <div class="modal-actions">
+          <button type="button" id="shareCancel"></button>
+          <button type="button" class="primary" id="shareSend"></button>
         </div>
       </div>
     </div>

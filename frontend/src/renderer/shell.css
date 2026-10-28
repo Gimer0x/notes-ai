@@ -548,6 +548,7 @@ button.auth-link svg {
   line-height: 1;
 }
 
+.note-meta #shareSummary,
 .note-meta #copySummary {
   width: 18px;
   height: 18px;
@@ -558,8 +559,24 @@ button.auth-link svg {
   transform: translateY(-1px);
 }
 
-.note-meta #showTranscript[hidden] + #copySummary {
+.note-meta #showTranscript[hidden] + #shareSummary {
   margin-left: auto;
+}
+
+.note-meta #showTranscript[hidden] + #shareSummary[hidden] + #copySummary {
+  margin-left: auto;
+}
+
+.modal-card textarea {
+  width: 100%;
+  margin: 0 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  resize: vertical;
+  font: inherit;
+  color: var(--ink);
+  background: #fff;
 }
 
 button.icon-btn {
@@ -997,11 +1014,19 @@ button.icon-btn:hover:not(:disabled) {
   margin-top: 28px;
 }
 
+.profile-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin: 4px 0 28px;
+}
+
 .profile-photo {
   display: block;
   width: 84px;
   height: 84px;
-  margin: 4px auto 22px;
+  margin: 0 0 14px;
   border-radius: 50%;
   object-fit: cover;
   background: #f2f3f6;
@@ -1009,6 +1034,22 @@ button.icon-btn:hover:not(:disabled) {
 
 .profile-photo[hidden] {
   display: none;
+}
+
+.profile-name {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--ink);
+}
+
+.profile-email-lead {
+  margin: 6px 0 0;
+  font-size: 0.92rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--muted);
 }
 
 .account h2,

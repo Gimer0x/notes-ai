@@ -106,6 +106,7 @@ type PithApi = {
       turns?: TranscriptTurn[] | null,
     ) => Promise<NoteRecord>;
     retry: (id: string) => Promise<NoteRecord>;
+    share: (id: string, emails: string[]) => Promise<void>;
   };
   ask: {
     send: (

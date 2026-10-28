@@ -151,6 +151,6 @@ function splitSummary(value: string | null): string[] {
   }
   return value
     .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+    .map((line) => line.replace(/\s+$/g, ''))
+    .filter((line) => line.trim().length > 0);
 }

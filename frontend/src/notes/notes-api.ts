@@ -99,6 +99,10 @@ export class NotesApi {
     return this.request('POST', `/notes/${id}/retry`);
   }
 
+  shareNote(id: string, emails: string[]): Promise<void> {
+    return this.request('POST', `/notes/${id}/share`, { emails });
+  }
+
   uploadSlice(
     id: string,
     seq: number,

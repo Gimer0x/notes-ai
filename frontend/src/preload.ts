@@ -97,6 +97,7 @@ contextBridge.exposeInMainWorld('pith', {
       }[] | null,
     ) => ipcRenderer.invoke('notes:stop', id, durationSeconds, transcriptText, language, turns),
     retry: (id: string) => ipcRenderer.invoke('notes:retry', id),
+    share: (id: string, emails: string[]) => ipcRenderer.invoke('notes:share', id, emails),
   },
   ask: {
     send: (
