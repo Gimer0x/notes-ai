@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, systemPreferences } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, systemPreferences } from 'electron';
 import { readFile, unlink } from 'fs/promises';
 import * as path from 'path';
 import { AuthService } from './auth/auth.service';
@@ -615,8 +615,43 @@ async function openMicrophoneSettings(): Promise<void> {
   process.stderr.write('mic permission settings opened\n');
 }
 
+function installAppMenu(): void {
+  // After ready. Building NSMenu before the app is ready traps on macOS (SIGTRAP).
+  // Do not call app.setName: that renames the Keychain item.
+  const appMenuName = 'Pith';
+  app.setAboutPanelOptions({ applicationName: appMenuName });
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: appMenuName,
+        submenu: [
+          { role: 'about', label: `About ${appMenuName}` },
+          { type: 'separator' },
+          { role: 'services' },
+          { type: 'separator' },
+          { role: 'hide', label: `Hide ${appMenuName}` },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          { role: 'quit', label: `Quit ${appMenuName}` },
+        ],
+      },
+      { role: 'fileMenu' },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+      { role: 'help', submenu: [] },
+    ]),
+  );
+}
+
 app.whenReady().then(async () => {
+  installAppMenu();
   if (process.platform === 'darwin') {
+    const dockIcon = nativeImage.createFromPath(path.join(__dirname, '..', 'build', 'dock-icon.png'));
+    if (!dockIcon.isEmpty() && app.dock) {
+      app.dock.setIcon(dockIcon);
+    }
     await systemPreferences.askForMediaAccess('microphone');
     await requestScreenCaptureAccess();
   }

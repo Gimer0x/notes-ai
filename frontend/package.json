@@ -7,9 +7,9 @@
     "build:native": "zsh native/build-helper.sh",
     "build:ui": "tsc && tsc -p tsconfig.renderer.json && mkdir -p dist/renderer && cp src/renderer/index.html dist/renderer/ && cp src/renderer/shell.html dist/renderer/ && cp src/renderer/shell.css dist/renderer/ && cp src/renderer/pith-mark.png dist/renderer/",
     "build": "npm run build:native && npm run build:ui",
-    "dock-icon": "zsh scripts/install-dock-icon.sh",
-    "start": "npm run build && npm run dock-icon && electron .",
-    "start:ui": "npm run build:ui && npm run dock-icon && electron .",
+    "app-name": "zsh scripts/dev-app-name.sh",
+    "start": "npm run build && npm run app-name && electron .",
+    "start:ui": "npm run build:ui && npm run app-name && electron .",
     "start:dev": "npm start",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.renderer.json && node scripts/check-i18n.cjs"
   },
@@ -25,7 +25,7 @@
   },
   "build": {
     "appId": "dev.pith.capture-spike",
-    "productName": "Pith Capture Spike",
+    "productName": "Pith",
     "directories": {
       "output": "release"
     },
