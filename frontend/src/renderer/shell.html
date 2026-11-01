@@ -153,6 +153,7 @@
               </svg>
             </button>
           </div>
+          <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
           <p class="error" id="mainError"></p>
           <div id="view"></div>
         </div>
@@ -225,10 +226,14 @@
       </div>
     </div>
     <div class="modal" id="shareDialog" hidden>
-      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="shareTitle">
+      <div class="modal-card share-card" role="dialog" aria-modal="true" aria-labelledby="shareTitle">
         <h2 id="shareTitle"></h2>
         <p id="shareBody"></p>
-        <textarea id="shareEmails" rows="4" autocomplete="off" spellcheck="false"></textarea>
+        <div class="share-field" id="shareField">
+          <input id="shareEmails" type="text" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-controls="shareSuggest" />
+        </div>
+        <ul class="share-suggest" id="shareSuggest" role="listbox" hidden></ul>
+        <p class="share-hint" id="shareHint"></p>
         <div class="modal-actions">
           <button type="button" id="shareCancel"></button>
           <button type="button" class="primary" id="shareSend"></button>

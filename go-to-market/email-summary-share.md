@@ -36,10 +36,10 @@ Independent mail module (`backend/src/mail/`). Notes and capture code do not imp
 
 A small send icon sits next to **Copy** on a ready summary (after Generate, and when opening an older note).
 
-- Dialog: one field for addresses separated by commas or new lines, **Send** and **Cancel**.
+- Dialog: a recipient field. Each valid address becomes a chip (comma, space, or Enter). Past recipients from a successful send are stored locally and suggested while typing; Tab fills the highlighted one. **Send** and **Cancel**. After a send, a confirmation slides in from the right, under the share and copy icons, and back out. It is dark grey text with a light border, set half a centimeter under the icons and clear of the scrollbar.
 - English and Spanish strings in the frontend i18n files.
 - The renderer never sees the JWT or `SMTP_PASS`.
 
 ## Out of scope
 
-Saved recipient groups, sending from the user’s Gmail, the transcript, the website, and billing changes.
+Saved recipient groups, sending from the user’s Gmail, the transcript, the website, and billing changes. Individual addresses are remembered only in the app’s local storage for autocomplete.

@@ -1098,72 +1098,335 @@ function bindCopy(text: string, label: string): void {
   };
 }
 
-function parseShareEmails(raw: string): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const part of raw.split(/[\s,;]+/)) {
-    const email = part.trim().toLowerCase();
-    if (!email || seen.has(email) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      continue;
+const SHARE_RECIPIENTS_KEY = 'pith.shareRecipients';
+const SHARE_RECIPIENT_CAP = 10;
+
+let shareChips: string[] = [];
+let shareSuggestIndex = 0;
+let toastToken = 0;
+
+function isShareEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function shareInput(): HTMLInputElement {
+  return document.getElementById('shareEmails') as HTMLInputElement;
+}
+
+function loadShareRecipients(): string[] {
+  try {
+    const raw = localStorage.getItem(SHARE_RECIPIENTS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) {
+      return [];
     }
-    seen.add(email);
-    out.push(email);
-    if (out.length >= 10) {
-      break;
+    return parsed.filter((item): item is string => typeof item === 'string' && isShareEmail(item));
+  } catch {
+    return [];
+  }
+}
+
+function rememberShareRecipients(emails: string[]): void {
+  const next = [...emails];
+  for (const saved of loadShareRecipients()) {
+    if (!next.includes(saved)) {
+      next.push(saved);
     }
   }
-  return out;
+  localStorage.setItem(SHARE_RECIPIENTS_KEY, JSON.stringify(next.slice(0, 40)));
+}
+
+function setShareHint(message: string, warn = false): void {
+  const hint = $('shareHint');
+  hint.textContent = message;
+  hint.classList.toggle('warn', warn);
+}
+
+function shareSuggestions(): string[] {
+  const query = shareInput().value.trim().toLowerCase();
+  if (!query) {
+    return [];
+  }
+  return loadShareRecipients()
+    .filter((email) => email.startsWith(query) && email !== query && !shareChips.includes(email))
+    .slice(0, 5);
+}
+
+function renderShareChips(): void {
+  const field = $('shareField');
+  const input = shareInput();
+  field.querySelectorAll('.share-chip').forEach((node) => node.remove());
+  for (const email of shareChips) {
+    const chip = document.createElement('span');
+    chip.className = 'share-chip';
+    const label = document.createElement('span');
+    label.textContent = email;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.setAttribute('aria-label', `${t.shareRemove} ${email}`);
+    remove.textContent = '×';
+    remove.addEventListener('click', () => {
+      shareChips = shareChips.filter((item) => item !== email);
+      renderShareChips();
+      renderShareSuggestions();
+      input.focus();
+    });
+    chip.append(label, remove);
+    field.insertBefore(chip, input);
+  }
+  input.placeholder = shareChips.length === 0 ? t.shareEmailsPlaceholder : '';
+}
+
+function renderShareSuggestions(): void {
+  const list = $('shareSuggest');
+  const input = shareInput();
+  const matches = shareSuggestions();
+  list.replaceChildren();
+  if (matches.length === 0) {
+    list.hidden = true;
+    shareSuggestIndex = 0;
+    input.removeAttribute('aria-activedescendant');
+    return;
+  }
+  if (shareSuggestIndex >= matches.length) {
+    shareSuggestIndex = 0;
+  }
+  const query = input.value.trim().toLowerCase();
+  matches.forEach((email, index) => {
+    const item = document.createElement('li');
+    item.id = `shareSuggest-${index}`;
+    item.setAttribute('role', 'presentation');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.setAttribute('role', 'option');
+    const matched = document.createElement('span');
+    matched.className = 'share-match';
+    matched.textContent = email.slice(0, query.length);
+    button.append(matched, document.createTextNode(email.slice(query.length)));
+    if (index === shareSuggestIndex) {
+      button.classList.add('active');
+      button.setAttribute('aria-selected', 'true');
+      input.setAttribute('aria-activedescendant', item.id);
+    }
+    button.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      commitShareEmail(email);
+      input.focus();
+    });
+    item.append(button);
+    list.append(item);
+  });
+  list.hidden = false;
+}
+
+function commitShareEmail(raw: string): boolean {
+  const email = raw.trim().toLowerCase().replace(/[,;]+$/, '');
+  if (!isShareEmail(email)) {
+    return false;
+  }
+  if (!shareChips.includes(email)) {
+    if (shareChips.length >= SHARE_RECIPIENT_CAP) {
+      setShareHint(t.shareFull, true);
+      return false;
+    }
+    shareChips.push(email);
+  }
+  shareInput().value = '';
+  shareSuggestIndex = 0;
+  setShareHint(t.shareHint);
+  renderShareChips();
+  renderShareSuggestions();
+  return true;
+}
+
+function acceptShareSuggestion(): void {
+  const chosen = shareSuggestions()[shareSuggestIndex];
+  if (chosen) {
+    commitShareEmail(chosen);
+  }
+}
+
+function showToast(message: string): void {
+  const toast = $('toast');
+  const token = ++toastToken;
+  toast.textContent = message;
+  toast.hidden = false;
+  toast.classList.remove('show');
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (token === toastToken) {
+        toast.classList.add('show');
+      }
+    });
+  });
+  window.setTimeout(() => {
+    if (token !== toastToken) {
+      return;
+    }
+    const hide = (event: TransitionEvent) => {
+      if (event.propertyName !== 'transform' || toast.classList.contains('show')) {
+        return;
+      }
+      toast.hidden = true;
+      toast.removeEventListener('transitionend', hide);
+    };
+    toast.addEventListener('transitionend', hide);
+    toast.classList.remove('show');
+    window.setTimeout(() => {
+      if (token === toastToken && !toast.classList.contains('show')) {
+        toast.hidden = true;
+      }
+    }, 800);
+  }, 2600);
 }
 
 function closeShareDialog(): void {
   $('shareDialog').hidden = true;
-  const area = document.getElementById('shareEmails') as HTMLTextAreaElement | null;
-  if (area) {
-    area.value = '';
-  }
+  shareChips = [];
+  shareSuggestIndex = 0;
+  const input = shareInput();
+  input.value = '';
+  renderShareChips();
+  renderShareSuggestions();
 }
 
 function openShareDialog(noteId: string): void {
   const dialog = $('shareDialog');
-  const title = $('shareTitle');
-  const body = $('shareBody');
-  const area = document.getElementById('shareEmails') as HTMLTextAreaElement;
   const send = document.getElementById('shareSend') as HTMLButtonElement;
   const cancel = document.getElementById('shareCancel') as HTMLButtonElement;
-  title.textContent = t.shareTitle;
-  body.textContent = t.shareBody;
-  area.placeholder = t.shareEmailsPlaceholder;
-  area.value = '';
+  $('shareTitle').textContent = t.shareTitle;
+  $('shareBody').textContent = t.shareBody;
   send.textContent = t.shareSend;
   cancel.textContent = t.shareCancel;
   send.disabled = false;
+  shareChips = [];
+  shareSuggestIndex = 0;
+  shareInput().value = '';
+  setShareHint(t.shareHint);
+  renderShareChips();
+  renderShareSuggestions();
   cancel.onclick = () => closeShareDialog();
   send.onclick = () => {
-    const emails = parseShareEmails(area.value);
-    if (emails.length === 0) {
-      setMainError(t.shareBody);
+    const draft = shareInput().value.trim();
+    if (draft && !isShareEmail(draft.toLowerCase())) {
+      setShareHint(t.shareInvalid, true);
+      shareInput().focus();
       return;
     }
+    if (draft && !commitShareEmail(draft)) {
+      shareInput().focus();
+      return;
+    }
+    if (shareChips.length === 0) {
+      setShareHint(t.shareNeedEmail, true);
+      shareInput().focus();
+      return;
+    }
+    const emails = [...shareChips];
     send.disabled = true;
     void pith.notes
       .share(noteId, emails)
       .then(() => {
+        rememberShareRecipients(emails);
         closeShareDialog();
-        setMainError('');
-        setMainError(t.shareSent);
-        window.setTimeout(() => {
-          if ($('mainError').textContent === t.shareSent) {
-            setMainError('');
-          }
-        }, 2500);
+        showToast(t.shareSent);
       })
       .catch((error: unknown) => {
         send.disabled = false;
-        setMainError(apiMessage(error));
+        setShareHint(apiMessage(error), true);
       });
   };
   dialog.hidden = false;
-  area.focus();
+  shareInput().focus();
+}
+
+function bindShareComposer(): void {
+  const input = shareInput();
+  $('shareField').addEventListener('click', (event) => {
+    if (event.target === $('shareField')) {
+      input.focus();
+    }
+  });
+  input.addEventListener('input', () => {
+    shareSuggestIndex = 0;
+    if ($('shareHint').classList.contains('warn')) {
+      setShareHint(t.shareHint);
+    }
+    renderShareSuggestions();
+  });
+  input.addEventListener('keydown', (event) => {
+    const matches = shareSuggestions();
+    if (event.key === 'Tab' && matches.length > 0) {
+      event.preventDefault();
+      acceptShareSuggestion();
+      return;
+    }
+    if (event.key === 'ArrowDown' && matches.length > 0) {
+      event.preventDefault();
+      shareSuggestIndex = (shareSuggestIndex + 1) % matches.length;
+      renderShareSuggestions();
+      return;
+    }
+    if (event.key === 'ArrowUp' && matches.length > 0) {
+      event.preventDefault();
+      shareSuggestIndex = (shareSuggestIndex - 1 + matches.length) % matches.length;
+      renderShareSuggestions();
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ',' || event.key === ';' || event.key === ' ') {
+      const draft = input.value.trim();
+      if (!draft && event.key !== 'Enter') {
+        event.preventDefault();
+        return;
+      }
+      if (isShareEmail(draft.toLowerCase())) {
+        event.preventDefault();
+        commitShareEmail(draft);
+        return;
+      }
+      if (event.key === 'Enter' && matches.length > 0) {
+        event.preventDefault();
+        acceptShareSuggestion();
+        return;
+      }
+      if (event.key !== 'Enter') {
+        event.preventDefault();
+        if (draft) {
+          setShareHint(t.shareInvalid, true);
+        }
+      }
+    }
+    if (event.key === 'Backspace' && input.value === '' && shareChips.length > 0) {
+      shareChips.pop();
+      renderShareChips();
+      renderShareSuggestions();
+    }
+  });
+  input.addEventListener('paste', (event) => {
+    const text = event.clipboardData?.getData('text') ?? '';
+    if (!/[\s,;]/.test(text)) {
+      return;
+    }
+    event.preventDefault();
+    let invalid = false;
+    for (const part of text.split(/[\s,;]+/)) {
+      if (!part.trim()) {
+        continue;
+      }
+      if (!commitShareEmail(part)) {
+        invalid = true;
+      }
+    }
+    if (invalid) {
+      setShareHint(t.shareInvalid, true);
+    }
+  });
+  input.addEventListener('blur', () => {
+    const draft = input.value.trim();
+    if (draft && isShareEmail(draft.toLowerCase())) {
+      commitShareEmail(draft);
+    }
+  });
 }
 
 function bindShare(note: Note, hasSummary: boolean): void {
@@ -1718,6 +1981,7 @@ async function init(): Promise<void> {
       closeShareDialog();
     }
   });
+  bindShareComposer();
   document.addEventListener('click', () => closeMenus());
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') {
