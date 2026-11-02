@@ -92,6 +92,12 @@ function armPauseLimit(): void {
   }, pauseAutoCancelSeconds * 1000);
 }
 
+let summaryTypeToken = 0;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function showSummary(lines: string[]): void {
   const blocks: string[] = [];
   for (const line of lines) {
@@ -116,10 +122,57 @@ function showSummary(lines: string[]): void {
     }
     blocks.push(trimmed);
   }
+  const text = blocks.join('\n').trim();
   const body = noteBody();
-  body.value = blocks.join('\n').trim();
-  body.scrollTop = 0;
-  body.setSelectionRange(0, 0);
+  const token = ++summaryTypeToken;
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce || text.length === 0) {
+    body.readOnly = false;
+    body.value = text;
+    body.scrollTop = 0;
+    body.setSelectionRange(0, 0);
+    return;
+  }
+  body.readOnly = true;
+  body.value = '';
+  body.focus();
+  const rows = text.split('\n');
+  void (async () => {
+    let written = '';
+    for (let index = 0; index < rows.length; index += 1) {
+      const line = rows[index];
+      const chunks = Math.max(1, Math.min(8, line.length || 1));
+      const step = Math.max(1, Math.ceil(line.length / chunks));
+      const gap = Math.min(99, Math.max(line.length === 0 ? 13.2 : 39.6, line.length * 1.76)) / chunks;
+      for (let count = line.length === 0 ? 0 : step; count < line.length; count += step) {
+        if (token !== summaryTypeToken) {
+          body.readOnly = false;
+          return;
+        }
+        body.value = written + line.slice(0, count);
+        body.setSelectionRange(body.value.length, body.value.length);
+        body.scrollTop = body.scrollHeight;
+        await wait(gap);
+      }
+      written += line;
+      if (index < rows.length - 1) {
+        written += '\n';
+      }
+      if (token !== summaryTypeToken) {
+        body.readOnly = false;
+        return;
+      }
+      body.value = written;
+      body.setSelectionRange(body.value.length, body.value.length);
+      body.scrollTop = body.scrollHeight;
+      if (index < rows.length - 1) {
+        await wait(19.8);
+      }
+    }
+    body.readOnly = false;
+    body.scrollTop = 0;
+    body.setSelectionRange(0, 0);
+  })();
 }
 
 function closeSpikeMenu(): void {
