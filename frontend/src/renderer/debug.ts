@@ -14,6 +14,8 @@ let pauseWarnTimer: number | null = null;
 let pauseCancelTimer: number | null = null;
 let captureState: 'idle' | 'listening' | 'paused' = 'idle';
 let waitingForMicrophone = false;
+let meetingStartedAt: Date | null = null;
+let summaryLines: string[] = [];
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 
@@ -33,7 +35,10 @@ function applyCopy(): void {
   $('backToNotepad').setAttribute('aria-label', t.home);
   $('spikeMore').setAttribute('aria-label', t.moreActions);
   $('moveToTrash').textContent = t.moveToTrash;
-  showWorkspaceName();
+  $('showTranscript').textContent = t.showTranscript;
+  $('shareSummary').setAttribute('aria-label', t.shareSummary);
+  $('copySummary').setAttribute('aria-label', t.copySummary);
+  renderNoteMeta();
   const notes = document.getElementById('noteBody') as HTMLTextAreaElement;
   notes.setAttribute('aria-label', t.listenNotesLabel);
   notes.placeholder = t.listenNotesPlaceholder;
@@ -59,11 +64,21 @@ function recordingWorkspace(): { id: string; name: string } {
   };
 }
 
-function showWorkspaceName(): void {
-  const name = recordingWorkspace().name.trim();
-  const label = $('workspaceName');
-  label.textContent = name;
-  label.hidden = name.length === 0;
+function renderNoteMeta(): void {
+  const when = meetingStartedAt ?? new Date();
+  const dateLocale = locale === 'es' ? 'es' : 'en';
+  const date = when.toLocaleDateString(dateLocale, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  const time = when.toLocaleTimeString(dateLocale, { timeStyle: 'short' });
+  $('noteWhen').textContent = `${date} · ${time}`;
+  const folder = recordingWorkspace().name.trim();
+  const folderLabel = $('noteFolder');
+  folderLabel.textContent = folder;
+  folderLabel.hidden = folder.length === 0;
 }
 
 function clearPauseLimit(): void {
@@ -93,86 +108,637 @@ function armPauseLimit(): void {
 }
 
 let summaryTypeToken = 0;
+let copyTimer: number | null = null;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-function showSummary(lines: string[]): void {
-  const blocks: string[] = [];
+type SummaryKind = 'h' | 'ul' | 'ol';
+type SummaryItem = { kind: SummaryKind; depth: number; text: string };
+
+function summaryItems(lines: string[]): SummaryItem[] {
+  const items: SummaryItem[] = [];
   for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
+    const indent = line.match(/^ */)?.[0].length ?? 0;
+    const depth = Math.min(3, Math.floor(indent / 2));
+    const text = line.trim();
+    if (!text) {
       continue;
     }
-    if (trimmed.startsWith('#')) {
+    if (text.startsWith('#')) {
+      items.push({ kind: 'h', depth: 0, text: text.replace(/^#+\s*/, '') });
+      continue;
+    }
+    const numbered = text.match(/^\d+[.)]\s+(.*)$/);
+    if (numbered) {
+      items.push({ kind: 'ol', depth, text: numbered[1] });
+      continue;
+    }
+    const bullet = text.match(/^[•\-*]\s+(.*)$/);
+    items.push({ kind: 'ul', depth, text: bullet ? bullet[1] : text });
+  }
+  return items;
+}
+
+function summaryPlainText(lines: string[]): string {
+  const blocks: string[] = [];
+  let numbered = false;
+  let step = 0;
+  for (const line of lines) {
+    const indent = line.match(/^ */)?.[0].length ?? 0;
+    const depth = Math.min(3, Math.floor(indent / 2));
+    const text = line.trim();
+    if (!text) {
+      continue;
+    }
+    if (text.startsWith('#')) {
+      numbered = false;
+      step = 0;
       if (blocks.length > 0) {
         blocks.push('');
       }
-      blocks.push(trimmed.replace(/^#+\s*/, ''));
+      blocks.push(text.replace(/^#+\s*/, ''));
       continue;
     }
-    if (/^\d+[.)]\s+/.test(trimmed)) {
-      blocks.push(`    ${trimmed}`);
+    const stepMatch = text.match(/^\d+[.)]\s+(.*)$/);
+    const pad = '  '.repeat(depth);
+    if (stepMatch) {
+      if (!numbered) {
+        numbered = true;
+        step = 0;
+      }
+      step += 1;
+      blocks.push(`${pad}${step}. ${stepMatch[1]}`);
       continue;
     }
-    if (/^[•\-*]\s+/.test(trimmed)) {
-      blocks.push(`  ${trimmed}`);
-      continue;
-    }
-    blocks.push(trimmed);
+    numbered = false;
+    const bullet = text.match(/^[•\-*]\s+(.*)$/);
+    blocks.push(`${pad}• ${bullet ? bullet[1] : text}`);
   }
-  const text = blocks.join('\n').trim();
-  const body = noteBody();
+  return blocks.join('\n').trim();
+}
+
+function appendSummaryItem(view: HTMLElement, item: SummaryItem, list: HTMLElement | null): HTMLElement {
+  if (item.kind === 'h') {
+    const heading = document.createElement('h2');
+    heading.className = 'summary-heading';
+    view.append(heading);
+    return heading;
+  }
+  const row = document.createElement('li');
+  if (item.depth > 0) {
+    row.className = 'nested';
+  }
+  list?.append(row);
+  return row;
+}
+
+function openSummaryList(view: HTMLElement, kind: 'ul' | 'ol'): HTMLElement {
+  const list = document.createElement(kind);
+  list.className = kind === 'ul' ? 'summary-list' : 'summary-steps';
+  view.append(list);
+  return list;
+}
+
+function scrollSummaryToStart(): void {
+  const scroller = summaryScroller();
+  if (scroller) {
+    scroller.scrollTop = 0;
+  }
+}
+
+function summaryScroller(): HTMLElement | null {
+  const scroller = document.querySelector('.spike-copy');
+  return scroller instanceof HTMLElement ? scroller : null;
+}
+
+async function typeInto(node: HTMLElement, text: string, token: number): Promise<boolean> {
+  const chunks = Math.max(1, Math.min(8, text.length || 1));
+  const step = Math.max(1, Math.ceil(text.length / chunks));
+  const gap = Math.min(99, Math.max(text.length === 0 ? 13.2 : 39.6, text.length * 1.76)) / chunks;
+  for (let count = step; count < text.length; count += step) {
+    if (token !== summaryTypeToken) {
+      return false;
+    }
+    node.textContent = text.slice(0, count);
+    node.scrollIntoView({ block: 'nearest' });
+    await wait(gap);
+  }
+  if (token !== summaryTypeToken) {
+    return false;
+  }
+  node.textContent = text;
+  node.scrollIntoView({ block: 'nearest' });
+  return true;
+}
+
+function paintSummary(view: HTMLElement, items: SummaryItem[]): void {
+  view.replaceChildren();
+  let list: HTMLElement | null = null;
+  let listKind: 'ul' | 'ol' | null = null;
+  for (const item of items) {
+    if (item.kind === 'h') {
+      list = null;
+      listKind = null;
+    } else if (listKind !== item.kind) {
+      list = openSummaryList(view, item.kind);
+      listKind = item.kind;
+    }
+    appendSummaryItem(view, item, list).textContent = item.text;
+  }
+  scrollSummaryToStart();
+}
+
+function showSummary(note: NoteRecord): void {
+  const items = summaryItems(note.summaryText);
+  const view = $('summaryView');
   const token = ++summaryTypeToken;
+  summaryLines = note.summaryText;
+  noteBody().hidden = true;
+  $('transcriptView').hidden = true;
+  view.hidden = false;
+  enableSummaryActions(note);
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduce || text.length === 0) {
-    body.readOnly = false;
-    body.value = text;
-    body.scrollTop = 0;
-    body.setSelectionRange(0, 0);
+  if (reduce || items.length === 0) {
+    paintSummary(view, items);
     return;
   }
-  body.readOnly = true;
-  body.value = '';
-  body.focus();
-  const rows = text.split('\n');
+  view.replaceChildren();
   void (async () => {
-    let written = '';
-    for (let index = 0; index < rows.length; index += 1) {
-      const line = rows[index];
-      const chunks = Math.max(1, Math.min(8, line.length || 1));
-      const step = Math.max(1, Math.ceil(line.length / chunks));
-      const gap = Math.min(99, Math.max(line.length === 0 ? 13.2 : 39.6, line.length * 1.76)) / chunks;
-      for (let count = line.length === 0 ? 0 : step; count < line.length; count += step) {
-        if (token !== summaryTypeToken) {
-          body.readOnly = false;
-          return;
-        }
-        body.value = written + line.slice(0, count);
-        body.setSelectionRange(body.value.length, body.value.length);
-        body.scrollTop = body.scrollHeight;
-        await wait(gap);
+    let list: HTMLElement | null = null;
+    let listKind: 'ul' | 'ol' | null = null;
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index];
+      if (item.kind === 'h') {
+        list = null;
+        listKind = null;
+      } else if (listKind !== item.kind) {
+        list = openSummaryList(view, item.kind);
+        listKind = item.kind;
       }
-      written += line;
-      if (index < rows.length - 1) {
-        written += '\n';
-      }
-      if (token !== summaryTypeToken) {
-        body.readOnly = false;
+      const node = appendSummaryItem(view, item, list);
+      const kept = await typeInto(node, item.text, token);
+      if (!kept) {
         return;
       }
-      body.value = written;
-      body.setSelectionRange(body.value.length, body.value.length);
-      body.scrollTop = body.scrollHeight;
-      if (index < rows.length - 1) {
+      if (index < items.length - 1) {
         await wait(19.8);
       }
     }
-    body.readOnly = false;
-    body.scrollTop = 0;
-    body.setSelectionRange(0, 0);
+    if (token === summaryTypeToken) {
+      scrollSummaryToStart();
+    }
   })();
+}
+
+function formatTurnTime(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(whole / 60);
+  const remain = whole % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(remain).padStart(2, '0')}`;
+}
+
+function renderTranscript(note: NoteRecord): void {
+  const view = $('transcriptView');
+  view.replaceChildren();
+  const turns =
+    note.transcriptTurns.length > 0
+      ? note.transcriptTurns
+      : note.transcriptText?.trim()
+        ? [{ source: 'mix' as const, startSec: 0, endSec: note.durationSeconds ?? 0, text: note.transcriptText.trim() }]
+        : [];
+  const chat = document.createElement('div');
+  chat.className = 'chat';
+  let lastStamp = '';
+  for (const turn of turns) {
+    const text = turn.text.trim();
+    if (!text) {
+      continue;
+    }
+    const stamp = formatTurnTime(turn.startSec);
+    if (stamp !== lastStamp) {
+      const time = document.createElement('p');
+      time.className = 'turn-time';
+      time.textContent = stamp;
+      chat.append(time);
+      lastStamp = stamp;
+    }
+    const bubble = document.createElement('p');
+    bubble.className = `bubble ${turn.source}`;
+    bubble.textContent = text;
+    chat.append(bubble);
+  }
+  view.append(chat);
+}
+
+function toggleTranscript(): void {
+  const transcript = $('transcriptView');
+  const summary = $('summaryView');
+  const button = $('showTranscript') as HTMLButtonElement;
+  const opening = transcript.hidden;
+  transcript.hidden = !opening;
+  summary.hidden = opening;
+  button.textContent = opening ? t.backToSummary : t.showTranscript;
+}
+
+function copyWithSelection(text: string): void {
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.append(area);
+  area.select();
+  document.execCommand('copy');
+  area.remove();
+}
+
+function writeClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text).catch(() => {
+      copyWithSelection(text);
+    });
+  }
+  copyWithSelection(text);
+  return Promise.resolve();
+}
+
+function enableSummaryActions(note: NoteRecord): void {
+  const share = $('shareSummary') as HTMLButtonElement;
+  const copy = $('copySummary') as HTMLButtonElement;
+  const transcript = $('showTranscript') as HTMLButtonElement;
+  const hasTranscript = note.transcriptTurns.length > 0 || Boolean(note.transcriptText?.trim());
+  share.disabled = false;
+  copy.disabled = false;
+  transcript.disabled = !hasTranscript;
+  transcript.textContent = t.showTranscript;
+  if (hasTranscript) {
+    renderTranscript(note);
+  }
+  share.onclick = () => openShareDialog(note.id);
+  transcript.onclick = () => {
+    if (transcript.disabled) {
+      return;
+    }
+    toggleTranscript();
+  };
+  copy.onclick = () => {
+    void writeClipboard(summaryPlainText(summaryLines)).then(() => {
+      copy.classList.add('copied');
+      copy.setAttribute('aria-label', t.copiedSummary);
+      if (copyTimer != null) {
+        window.clearTimeout(copyTimer);
+      }
+      copyTimer = window.setTimeout(() => {
+        copy.classList.remove('copied');
+        copy.setAttribute('aria-label', t.copySummary);
+      }, 1500);
+    });
+  };
+}
+
+const SHARE_RECIPIENTS_KEY = 'pith.shareRecipients';
+const SHARE_RECIPIENT_CAP = 10;
+let shareChips: string[] = [];
+let shareSuggestIndex = 0;
+let toastToken = 0;
+
+function isShareEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function shareInput(): HTMLInputElement {
+  return document.getElementById('shareEmails') as HTMLInputElement;
+}
+
+function loadShareRecipients(): string[] {
+  try {
+    const raw = localStorage.getItem(SHARE_RECIPIENTS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter((item): item is string => typeof item === 'string' && isShareEmail(item));
+  } catch {
+    return [];
+  }
+}
+
+function rememberShareRecipients(emails: string[]): void {
+  const next = [...emails];
+  for (const saved of loadShareRecipients()) {
+    if (!next.includes(saved)) {
+      next.push(saved);
+    }
+  }
+  localStorage.setItem(SHARE_RECIPIENTS_KEY, JSON.stringify(next.slice(0, 40)));
+}
+
+function setShareHint(message: string, warn = false): void {
+  const hint = $('shareHint');
+  hint.textContent = message;
+  hint.classList.toggle('warn', warn);
+}
+
+function shareSuggestions(): string[] {
+  const query = shareInput().value.trim().toLowerCase();
+  if (!query) {
+    return [];
+  }
+  return loadShareRecipients()
+    .filter((email) => email.startsWith(query) && email !== query && !shareChips.includes(email))
+    .slice(0, 5);
+}
+
+function renderShareChips(): void {
+  const field = $('shareField');
+  const input = shareInput();
+  field.querySelectorAll('.share-chip').forEach((node) => node.remove());
+  for (const email of shareChips) {
+    const chip = document.createElement('span');
+    chip.className = 'share-chip';
+    const label = document.createElement('span');
+    label.textContent = email;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'share-chip-remove';
+    remove.setAttribute('aria-label', `${t.shareRemove} ${email}`);
+    remove.textContent = '×';
+    remove.addEventListener('click', () => {
+      shareChips = shareChips.filter((item) => item !== email);
+      renderShareChips();
+      renderShareSuggestions();
+      input.focus();
+    });
+    chip.append(label, remove);
+    field.insertBefore(chip, input);
+  }
+  input.placeholder = shareChips.length === 0 ? t.shareEmailsPlaceholder : '';
+}
+
+function renderShareSuggestions(): void {
+  const list = $('shareSuggest');
+  const input = shareInput();
+  const matches = shareSuggestions();
+  list.replaceChildren();
+  if (matches.length === 0) {
+    list.hidden = true;
+    shareSuggestIndex = 0;
+    input.removeAttribute('aria-activedescendant');
+    return;
+  }
+  if (shareSuggestIndex >= matches.length) {
+    shareSuggestIndex = 0;
+  }
+  const query = input.value.trim().toLowerCase();
+  matches.forEach((email, index) => {
+    const item = document.createElement('li');
+    item.id = `shareSuggest-${index}`;
+    item.setAttribute('role', 'presentation');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'share-option';
+    button.setAttribute('role', 'option');
+    const matched = document.createElement('span');
+    matched.className = 'share-match';
+    matched.textContent = email.slice(0, query.length);
+    button.append(matched, document.createTextNode(email.slice(query.length)));
+    if (index === shareSuggestIndex) {
+      button.classList.add('active');
+      button.setAttribute('aria-selected', 'true');
+      input.setAttribute('aria-activedescendant', item.id);
+    }
+    button.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      commitShareEmail(email);
+      input.focus();
+    });
+    item.append(button);
+    list.append(item);
+  });
+  list.hidden = false;
+}
+
+function commitShareEmail(raw: string): boolean {
+  const email = raw.trim().toLowerCase().replace(/[,;]+$/, '');
+  if (!isShareEmail(email)) {
+    return false;
+  }
+  if (!shareChips.includes(email)) {
+    if (shareChips.length >= SHARE_RECIPIENT_CAP) {
+      setShareHint(t.shareFull, true);
+      return false;
+    }
+    shareChips.push(email);
+  }
+  shareInput().value = '';
+  shareSuggestIndex = 0;
+  setShareHint(t.shareHint);
+  renderShareChips();
+  renderShareSuggestions();
+  return true;
+}
+
+function acceptShareSuggestion(): void {
+  const chosen = shareSuggestions()[shareSuggestIndex];
+  if (chosen) {
+    commitShareEmail(chosen);
+  }
+}
+
+function showToast(message: string): void {
+  const toast = $('toast');
+  const token = ++toastToken;
+  toast.textContent = message;
+  toast.hidden = false;
+  toast.classList.remove('show');
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (token === toastToken) {
+        toast.classList.add('show');
+      }
+    });
+  });
+  window.setTimeout(() => {
+    if (token !== toastToken) {
+      return;
+    }
+    const hide = (event: TransitionEvent) => {
+      if (event.propertyName !== 'transform' || toast.classList.contains('show')) {
+        return;
+      }
+      toast.hidden = true;
+      toast.removeEventListener('transitionend', hide);
+    };
+    toast.addEventListener('transitionend', hide);
+    toast.classList.remove('show');
+    window.setTimeout(() => {
+      if (token === toastToken && !toast.classList.contains('show')) {
+        toast.hidden = true;
+      }
+    }, 800);
+  }, 2600);
+}
+
+function closeShareDialog(): void {
+  $('shareDialog').hidden = true;
+  shareChips = [];
+  shareSuggestIndex = 0;
+  const input = shareInput();
+  input.value = '';
+  renderShareChips();
+  renderShareSuggestions();
+}
+
+function shareFailure(error: unknown): string {
+  const code = error instanceof Error ? error.message : '';
+  if (code.includes('sign_in_required')) {
+    return t.signInRequired;
+  }
+  if (code.includes('mail_not_configured')) {
+    return t.errorMailNotConfigured;
+  }
+  return t.errorGeneric;
+}
+
+function openShareDialog(noteId: string): void {
+  const dialog = $('shareDialog');
+  const send = document.getElementById('shareSend') as HTMLButtonElement;
+  const cancel = document.getElementById('shareCancel') as HTMLButtonElement;
+  $('shareTitle').textContent = t.shareTitle;
+  $('shareBody').textContent = t.shareBody;
+  send.textContent = t.shareSend;
+  cancel.textContent = t.shareCancel;
+  send.disabled = false;
+  shareChips = [];
+  shareSuggestIndex = 0;
+  shareInput().value = '';
+  setShareHint(t.shareHint);
+  renderShareChips();
+  renderShareSuggestions();
+  cancel.onclick = () => closeShareDialog();
+  send.onclick = () => {
+    const draft = shareInput().value.trim();
+    if (draft && !isShareEmail(draft.toLowerCase())) {
+      setShareHint(t.shareInvalid, true);
+      shareInput().focus();
+      return;
+    }
+    if (draft && !commitShareEmail(draft)) {
+      shareInput().focus();
+      return;
+    }
+    if (shareChips.length === 0) {
+      setShareHint(t.shareNeedEmail, true);
+      shareInput().focus();
+      return;
+    }
+    const emails = [...shareChips];
+    send.disabled = true;
+    void pith.notes
+      .share(noteId, emails)
+      .then(() => {
+        rememberShareRecipients(emails);
+        closeShareDialog();
+        showToast(t.shareSent);
+      })
+      .catch((error: unknown) => {
+        send.disabled = false;
+        setShareHint(shareFailure(error), true);
+      });
+  };
+  dialog.hidden = false;
+  shareInput().focus();
+}
+
+function bindShareComposer(): void {
+  const input = shareInput();
+  $('shareField').addEventListener('click', (event) => {
+    if (event.target === $('shareField')) {
+      input.focus();
+    }
+  });
+  input.addEventListener('input', () => {
+    shareSuggestIndex = 0;
+    if ($('shareHint').classList.contains('warn')) {
+      setShareHint(t.shareHint);
+    }
+    renderShareSuggestions();
+  });
+  input.addEventListener('keydown', (event) => {
+    const matches = shareSuggestions();
+    if (event.key === 'Tab' && matches.length > 0) {
+      event.preventDefault();
+      acceptShareSuggestion();
+      return;
+    }
+    if (event.key === 'ArrowDown' && matches.length > 0) {
+      event.preventDefault();
+      shareSuggestIndex = (shareSuggestIndex + 1) % matches.length;
+      renderShareSuggestions();
+      return;
+    }
+    if (event.key === 'ArrowUp' && matches.length > 0) {
+      event.preventDefault();
+      shareSuggestIndex = (shareSuggestIndex - 1 + matches.length) % matches.length;
+      renderShareSuggestions();
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ',' || event.key === ';' || event.key === ' ') {
+      const draft = input.value.trim();
+      if (!draft && event.key !== 'Enter') {
+        event.preventDefault();
+        return;
+      }
+      if (isShareEmail(draft.toLowerCase())) {
+        event.preventDefault();
+        commitShareEmail(draft);
+        return;
+      }
+      if (event.key === 'Enter' && matches.length > 0) {
+        event.preventDefault();
+        acceptShareSuggestion();
+        return;
+      }
+      if (event.key !== 'Enter') {
+        event.preventDefault();
+        if (draft) {
+          setShareHint(t.shareInvalid, true);
+        }
+      }
+    }
+    if (event.key === 'Backspace' && input.value === '' && shareChips.length > 0) {
+      shareChips.pop();
+      renderShareChips();
+      renderShareSuggestions();
+    }
+  });
+  input.addEventListener('paste', (event) => {
+    const text = event.clipboardData?.getData('text') ?? '';
+    if (!/[\s,;]/.test(text)) {
+      return;
+    }
+    event.preventDefault();
+    let invalid = false;
+    for (const part of text.split(/[\s,;]+/)) {
+      if (!part.trim()) {
+        continue;
+      }
+      if (!commitShareEmail(part)) {
+        invalid = true;
+      }
+    }
+    if (invalid) {
+      setShareHint(t.shareInvalid, true);
+    }
+  });
+  input.addEventListener('blur', () => {
+    const draft = input.value.trim();
+    if (draft && isShareEmail(draft.toLowerCase())) {
+      commitShareEmail(draft);
+    }
+  });
 }
 
 function closeSpikeMenu(): void {
@@ -456,6 +1022,10 @@ function applyLevels(levels: CaptureLevels): void {
 }
 
 function applyStart(result: { inputName: string }): void {
+  if (meetingStartedAt == null) {
+    meetingStartedAt = new Date();
+  }
+  renderNoteMeta();
   captureState = 'listening';
   applyDevice({ inputName: result.inputName, lost: !result.inputName });
   applyGenerateEnabled();
@@ -568,6 +1138,7 @@ async function init(): Promise<void> {
   locale = await pith.getLocale();
   t = await pith.getMessages(locale);
   applyCopy();
+  bindShareComposer();
   try {
     const config = await pith.getConfig();
     minListenSeconds = config.minListenSeconds;
@@ -697,8 +1268,15 @@ async function init(): Promise<void> {
           captureFinished = true;
           freezeTimer(recordedSeconds());
           applyLevels({ mic: 0, system: 0 });
+          if (result.startedAt) {
+            const started = new Date(result.startedAt);
+            if (!Number.isNaN(started.getTime())) {
+              meetingStartedAt = started;
+              renderNoteMeta();
+            }
+          }
           if (result.summaryText.length > 0) {
-            showSummary(result.summaryText);
+            showSummary(result);
           } else {
             setError('summary_failed');
           }

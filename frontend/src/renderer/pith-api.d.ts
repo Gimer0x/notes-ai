@@ -65,14 +65,7 @@ type PithApi = {
     start: () => Promise<{ systemAudioEnabled: boolean; inputName: string }>;
     pause: () => Promise<void>;
     resume: () => Promise<void>;
-    stop: (
-      noteId: string,
-      typedNotes: string,
-    ) => Promise<{
-      id: string;
-      summaryText: string[];
-      status: 'ready' | 'failed' | 'listening' | 'paused' | 'processing';
-    }>;
+    stop: (noteId: string, typedNotes: string) => Promise<NoteRecord>;
     cancel: () => Promise<void>;
     end: () => Promise<{ durationSeconds: number }>;
     getState: () => Promise<'idle' | 'listening' | 'paused'>;

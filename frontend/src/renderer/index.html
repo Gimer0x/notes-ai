@@ -49,17 +49,6 @@
         gap: 10px;
         margin: 0 0 12px;
       }
-      .spike-workspace {
-        margin: 0;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: 0.95rem;
-        font-weight: 500;
-        line-height: 1.2;
-        color: var(--ink);
-      }
       .spike-bar .note-menu {
         margin-left: auto;
       }
@@ -68,7 +57,16 @@
         min-height: 0;
         display: flex;
         flex-direction: column;
-        padding: 0 48px;
+        padding: 0 24px;
+        overflow: auto;
+      }
+      .note-sheet {
+        flex: 0 0 auto;
+        width: min(720px, 100%);
+        margin: 8px auto 0;
+        min-height: calc(100% - 8px);
+        display: flex;
+        flex-direction: column;
       }
       .home-btn {
         display: inline-flex;
@@ -177,14 +175,14 @@
         width: 100%;
         flex: 1;
         min-height: 8rem;
-        margin: 0 0 8px;
-        padding: 0;
+        margin: 18px 0 0;
+        padding: 0 0 12px;
         border: none;
         border-radius: 0;
         background: transparent;
         resize: none;
         font: inherit;
-        font-size: 1.05rem;
+        font-size: 13pt;
         line-height: 1.5;
         color: var(--ink);
       }
@@ -225,7 +223,7 @@
       button {
         cursor: pointer;
       }
-      button:hover:not(:disabled):not(.primary):not(.sign-in):not(.sign-out):not(.danger):not(.home-btn):not(.note-more):not(.danger-item) {
+      button:hover:not(:disabled):not(.primary):not(.sign-in):not(.sign-out):not(.danger):not(.home-btn):not(.note-more):not(.danger-item):not(.text-btn):not(.icon-btn):not(.share-option):not(.share-chip-remove) {
         background: #eef0fb;
         border-color: var(--wash);
       }
@@ -366,6 +364,318 @@
       .level-bars .bar:nth-child(3) {
         height: 32%;
       }
+      .note-meta {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 0;
+      }
+      .note-when,
+      .note-folder {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .note-folder::before {
+        content: "•";
+        margin-right: 8px;
+      }
+      .note-meta #showTranscript {
+        margin: 0 0 0 auto;
+        line-height: 1;
+      }
+      .note-meta #shareSummary,
+      .note-meta #copySummary {
+        width: 18px;
+        height: 18px;
+        margin: 0 0 0 8px;
+      }
+      .note-meta #copySummary svg {
+        transform: translateY(-1px);
+      }
+      button.text-btn {
+        width: auto;
+        margin: 0;
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+      button.text-btn:hover:not(:disabled) {
+        background: transparent;
+        border-color: transparent;
+        color: var(--ink);
+      }
+      button.icon-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        color: #2a2e3c;
+      }
+      button.icon-btn svg {
+        width: 16px;
+        height: 16px;
+      }
+      button.icon-btn .copied-icon {
+        display: none;
+      }
+      button.icon-btn.copied .copy-icon {
+        display: none;
+      }
+      button.icon-btn.copied .copied-icon {
+        display: block;
+      }
+      button.icon-btn:hover:not(:disabled) {
+        background: transparent;
+        border-color: transparent;
+        color: var(--ink);
+      }
+      .toast {
+        width: max-content;
+        max-width: 100%;
+        margin: calc(6px + 0.5cm) 0 0 auto;
+        padding: 5px 12px;
+        border: 1px solid rgba(42, 46, 60, 0.18);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--muted);
+        font-size: 0.86rem;
+        line-height: 1.3;
+        transform: translateX(28px);
+        opacity: 0;
+        pointer-events: none;
+        transition:
+          transform 0.72s cubic-bezier(0.4, 0, 0.2, 1),
+          opacity 0.72s ease;
+      }
+      .toast.show {
+        transform: translateX(0);
+        opacity: 1;
+        transition:
+          transform 0.5s cubic-bezier(0.16, 0.84, 0.32, 1),
+          opacity 0.5s ease;
+      }
+      .summary-view {
+        margin: 18px 0 12px;
+        color: var(--ink);
+        font-size: 13pt;
+        line-height: 1.5;
+      }
+      h2.summary-heading {
+        margin: 18px 0 8px;
+        font-size: 13.65pt;
+        font-weight: 600;
+        text-align: left;
+        color: var(--ink);
+      }
+      h2.summary-heading:first-child {
+        margin-top: 0;
+      }
+      .summary-list,
+      .summary-steps {
+        margin: 0 0 8px;
+        padding-left: 1.25rem;
+        line-height: 1.5;
+        text-align: left;
+        font-size: 13pt;
+      }
+      .summary-list {
+        list-style: disc;
+      }
+      .summary-list li.nested,
+      .summary-steps li.nested {
+        margin-left: 1rem;
+      }
+      .summary-steps {
+        list-style: decimal;
+        padding-left: 2.4rem;
+      }
+      .chat {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .turn-time {
+        margin: 8px 0 0;
+        text-align: center;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+      p.bubble {
+        max-width: 78%;
+        margin: 0;
+        padding: 8px 12px;
+        border-radius: 16px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+      }
+      p.bubble.system {
+        align-self: flex-start;
+        background: #eef0fb;
+        color: var(--ink);
+      }
+      p.bubble.mic {
+        align-self: flex-end;
+        background: #2a2e3c;
+        color: #ffffff;
+      }
+      p.bubble.mix {
+        align-self: center;
+        background: #7e89e6;
+        color: #000000;
+      }
+      .modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(50, 44, 40, 0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 20;
+        padding: 24px;
+      }
+      .modal-card {
+        width: min(420px, 100%);
+        background: var(--surface);
+        color: var(--ink);
+        border-radius: 16px;
+        padding: 24px;
+        border: 1px solid var(--line);
+      }
+      .share-card {
+        width: min(440px, 100%);
+      }
+      .modal-card h2 {
+        margin: 0 0 8px;
+        font-size: 1.15rem;
+        font-weight: 400;
+      }
+      .modal-card p {
+        margin: 0 0 20px;
+        color: var(--muted);
+      }
+      .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .share-field {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        min-height: 52px;
+        margin: 0;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #f7f8fc;
+        cursor: text;
+      }
+      .share-field:focus-within {
+        border-color: var(--wash);
+        background: #fff;
+        box-shadow: 0 0 0 3px rgba(126, 137, 230, 0.28);
+      }
+      .share-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        max-width: 100%;
+        padding: 2px 2px 2px 10px;
+        border-radius: 999px;
+        background: #fff;
+        border: 1px solid var(--line);
+        color: var(--ink);
+        font-size: 0.88rem;
+        line-height: 1.3;
+      }
+      .share-chip span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 240px;
+      }
+      .share-chip button {
+        width: 22px;
+        height: 22px;
+        margin: 0;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        background: transparent;
+        color: var(--muted);
+        font-size: 1rem;
+        line-height: 1;
+      }
+      .share-chip button:hover:not(:disabled) {
+        color: var(--ink);
+        background: #eef0f6;
+        border-color: transparent;
+      }
+      .share-field input {
+        flex: 1 1 140px;
+        min-width: 140px;
+        margin: 0;
+        padding: 6px 8px;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--ink);
+        font: inherit;
+        outline: none;
+      }
+      .share-suggest {
+        list-style: none;
+        margin: 8px 0 0;
+        padding: 4px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+        box-shadow: 0 10px 28px rgba(42, 46, 60, 0.08);
+      }
+      .share-suggest button {
+        display: flex;
+        width: 100%;
+        margin: 0;
+        padding: 8px 10px;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--ink);
+        text-align: left;
+        font-size: 0.92rem;
+      }
+      .share-suggest button.active,
+      .share-suggest button:hover:not(:disabled) {
+        background: #f3f4fb;
+        border-color: transparent;
+      }
+      .share-match {
+        color: var(--accent);
+      }
+      .share-card .share-hint {
+        margin: 10px 2px 18px;
+        min-height: 1.2em;
+        font-size: 0.82rem;
+        color: var(--muted);
+      }
+      .share-card .share-hint.warn {
+        color: var(--danger);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .toast {
+          transition: none;
+        }
+      }
     </style>
   </head>
   <body>
@@ -390,7 +700,6 @@
             />
           </svg>
         </button>
-        <p id="workspaceName" class="spike-workspace"></p>
         <div class="note-menu" id="spikeMenu">
           <button type="button" class="note-more" id="spikeMore" aria-haspopup="menu" aria-expanded="false"></button>
           <div class="note-menu-pop" id="spikeMenuPop" hidden role="menu">
@@ -399,14 +708,60 @@
         </div>
       </div>
       <div class="spike-copy">
-      <input
-        id="noteTitle"
-        class="note-title-input"
-        maxlength="120"
-        autocomplete="off"
-        spellcheck="false"
-      />
-      <textarea id="noteBody" class="note-body"></textarea>
+        <div class="note-sheet">
+          <input
+            id="noteTitle"
+            class="note-title-input"
+            maxlength="120"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div class="note-meta">
+            <p class="note-when" id="noteWhen"></p>
+            <p class="note-folder" id="noteFolder" hidden></p>
+            <button type="button" class="text-btn" id="showTranscript" disabled></button>
+            <button type="button" class="icon-btn" id="shareSummary" disabled>
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M4 11.5 20 4l-4.5 16-4-6.5L4 11.5Z"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M11.5 13.5 20 4"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+            <button type="button" class="icon-btn" id="copySummary" disabled>
+              <svg class="copy-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" stroke-width="2" />
+                <path
+                  d="M6 16H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <svg class="copied-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M5 12.5 9.5 17 19 7"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+          <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+          <textarea id="noteBody" class="note-body"></textarea>
+          <div id="summaryView" class="summary-view" hidden></div>
+          <div id="transcriptView" class="summary-view" hidden></div>
+        </div>
       </div>
       <div class="spike-footer">
       <p id="deviceWarning"></p>
@@ -433,6 +788,21 @@
       </div>
       </div>
     </main>
+    <div class="modal" id="shareDialog" hidden>
+      <div class="modal-card share-card" role="dialog" aria-modal="true" aria-labelledby="shareTitle">
+        <h2 id="shareTitle"></h2>
+        <p id="shareBody"></p>
+        <div class="share-field" id="shareField">
+          <input id="shareEmails" type="text" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-controls="shareSuggest" />
+        </div>
+        <ul class="share-suggest" id="shareSuggest" role="listbox" hidden></ul>
+        <p class="share-hint" id="shareHint"></p>
+        <div class="modal-actions">
+          <button type="button" id="shareCancel"></button>
+          <button type="button" class="primary" id="shareSend"></button>
+        </div>
+      </div>
+    </div>
     <script type="module" src="./debug.js"></script>
   </body>
 </html>
