@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { assertUuid, cancellationFailureCode, safeErrorMessage } from './safe-error';
+import { assertUuid, cancellationFailureCode, publicErrorCode, safeErrorMessage } from './safe-error';
 
 describe('safe errors', () => {
   it('keeps a short code and hides provider prose', () => {
@@ -12,6 +12,15 @@ describe('safe errors', () => {
   it('treats a missing Stripe subscription as already gone', () => {
     expect(cancellationFailureCode({ code: 'resource_missing' })).toBe('gone');
     expect(cancellationFailureCode(new Error('network down'))).toBe('failed');
+  });
+
+  it('turns an http body into a stable code', () => {
+    expect(publicErrorCode({ code: 'slices_missing', missing: [2] }, 409)).toEqual({
+      code: 'slices_missing',
+      missing: [2],
+    });
+    expect(publicErrorCode('provider exploded', 503).code).toBe('unavailable');
+    expect(publicErrorCode('nope happened', 500).code).toBe('internal_error');
   });
 
   it('rejects a non-uuid before it reaches the database', () => {

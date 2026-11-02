@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { SlicesService } from './slices.service';
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -75,14 +75,41 @@ describe('slice acceptance', () => {
       { summarize: jest.fn() } as never,
       {} as never,
     );
-    await slices.seal({
-      userId: USER,
-      noteId: NOTE,
-      finalSeq: 1,
-      durationSeconds: 40,
-      typedNotes: '',
-    });
+    await expect(
+      slices.seal({
+        userId: USER,
+        noteId: NOTE,
+        finalSeq: 1,
+        durationSeconds: 40,
+        typedNotes: '',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
     expect(billing.recordListen).not.toHaveBeenCalled();
+  });
+
+  it('rejects a different payload for a slice that is already running', async () => {
+    const slices = service((sql) => {
+      if (sql.includes('SELECT status FROM notes')) {
+        return { rows: [{ status: 'listening' }] };
+      }
+      if (sql.includes('content_sha256')) {
+        return { rows: [{ id: 'slice-1', status: 'running', wav_path: '/tmp/kept.wav', content_sha256: 'abc' }] };
+      }
+      return { rows: [] };
+    });
+    await expect(
+      slices.accept({
+        userId: USER,
+        noteId: NOTE,
+        seq: 1,
+        source: 'mix',
+        startSec: 0,
+        endSec: 30,
+        wav: Buffer.from('RIFF'),
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(written).toEqual([]);
+    expect(removed).toEqual([]);
   });
 
   it('rejects a slice range that is not a finite ordered span', async () => {

@@ -15,7 +15,7 @@ export class SpikeKeyGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const expected = this.config.get<string>('CAPTURE_SPIKE_KEY')?.trim() ?? '';
     if (!expected) {
-      throw new UnauthorizedException('CAPTURE_SPIKE_KEY is not configured');
+      throw new UnauthorizedException('spike_unconfigured');
     }
 
     const request = context.switchToHttp().getRequest<Request>();

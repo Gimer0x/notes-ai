@@ -70,14 +70,14 @@ export class OpenAiTranscribeService implements TranscribeService {
   ): Promise<TranscriptResult> {
     const apiKey = this.config.get<string>('OPENAI_API_KEY')?.trim();
     if (!apiKey) {
-      throw new ServiceUnavailableException('OPENAI_API_KEY is not set');
+      throw new ServiceUnavailableException('transcription_unconfigured');
     }
 
     const model =
       this.config.get<string>('OPENAI_TRANSCRIBE_MODEL')?.trim() ||
       DEFAULT_MODEL;
 
-    const openai = new OpenAI({ apiKey });
+    const openai = new OpenAI({ apiKey, maxRetries: 1, timeout: 120_000 });
     const parts: string[] = [];
     let language: MeetingLanguage = 'en';
     let usage: TranscribeUsage = {
@@ -132,7 +132,7 @@ export class OpenAiTranscribeService implements TranscribeService {
       throw error;
     }
 
-    await this.logSttCost(model, usage);
+    void this.logSttCost(model, usage);
 
     return {
       language,

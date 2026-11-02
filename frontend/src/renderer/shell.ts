@@ -8,6 +8,7 @@ type Me = {
   planInterval: 'month' | 'year' | null;
   remainingSeconds: number;
   remainingNotes: number | null;
+  stale?: boolean;
 };
 
 type Workspace = {
@@ -50,6 +51,7 @@ type Note = {
   language: 'en' | 'es' | null;
   errorCode: 'upload' | 'stt' | 'gpt' | null;
   errorMessage: string | null;
+  transcriptComplete?: boolean;
   startedAt: string | null;
   endedAt: string | null;
   durationSeconds: number | null;
@@ -204,8 +206,14 @@ function apiMessage(error: unknown): string {
   if (code.includes('mail_not_configured')) {
     return t.errorMailNotConfigured;
   }
-  if (code.includes('backend_unavailable')) {
+  if (code.includes('backend_unavailable') || code.includes('request_timeout')) {
     return t.backendUnavailable;
+  }
+  if (code.includes('slices_missing')) {
+    return t.slicesMissing;
+  }
+  if (code.includes('no_source')) {
+    return t.noSource;
   }
   return t.errorGeneric;
 }
@@ -404,7 +412,9 @@ async function refreshMe(): Promise<void> {
   $('signOut').hidden = !signedIn;
   fillProfileFields();
   syncNewNote();
-  if (signedIn && $('mainError').textContent === t.signInRequired) {
+  if (signedIn && me?.stale) {
+    setMainError(t.backendUnavailable);
+  } else if (signedIn && $('mainError').textContent === t.signInRequired) {
     setMainError('');
   }
 }
@@ -648,7 +658,7 @@ function showDialog(title: string, body: string, dangerLabel?: string): void {
 
 function openDeleteConfirm(note: Note): void {
   setMainError('');
-  if (note.status === 'processing' || note.status === 'listening' || note.status === 'paused') {
+  if (note.status === 'processing') {
     setMainError(t.errorNoteProcessing);
     closeMenus();
     return;
@@ -667,8 +677,18 @@ function confirmPending(): void {
   void (async () => {
     try {
       if (pending.kind === 'delete-note') {
-        await pith.notes.delete(pending.note.id);
-        notes = notes.filter((item) => item.id !== pending.note.id);
+        if (pending.note.status === 'listening' || pending.note.status === 'paused') {
+          if (liveNoteId === pending.note.id) {
+            await abandonListen();
+          } else {
+            await pith.capture.cancel().catch(() => undefined);
+            await pith.notes.cancel(pending.note.id);
+            notes = notes.filter((item) => item.id !== pending.note.id);
+          }
+        } else {
+          await pith.notes.delete(pending.note.id);
+          notes = notes.filter((item) => item.id !== pending.note.id);
+        }
         view = { name: 'workspace', id: pending.note.workspaceId };
       } else if (pending.kind === 'delete-workspace') {
         await pith.notes.deleteWorkspace(pending.id);
@@ -1521,6 +1541,7 @@ function renderNote(workspaceId: string, noteId: string): void {
   `;
   $('view').innerHTML = `
     <div class="detail">
+      ${note.transcriptComplete === false ? `<p class="empty">${escapeHtml(t.transcriptIncomplete)}</p>` : ''}
       ${note.status === 'ready' ? '' : `<span class="status-pill ${note.status}">${statusLabel(note.status)}</span>`}
       ${lines.length ? renderSummary(lines) : `<p class="empty">${t.noSummaryYet}</p>`}
       ${note.status === 'failed' ? `<div class="detail-actions"><button type="button" id="retryNote"></button></div>` : ''}
@@ -1858,6 +1879,9 @@ function applyCopy(): void {
 }
 
 async function init(): Promise<void> {
+  window.addEventListener('unhandledrejection', (event) => {
+    setMainError(apiMessage(event.reason));
+  });
   locale = await pith.getLocale();
   t = await pith.getMessages(locale);
   applyCopy();
@@ -2021,6 +2045,20 @@ async function init(): Promise<void> {
   } catch (error) {
     setMainError(apiMessage(error));
   }
+  window.setInterval(() => {
+    if (!notes.some((note) => note.status === 'processing')) {
+      return;
+    }
+    const before = notes.map((note) => `${note.id}:${note.status}:${note.summaryText.length}`).join('|');
+    void reloadLists()
+      .then(() => {
+        const after = notes.map((note) => `${note.id}:${note.status}:${note.summaryText.length}`).join('|');
+        if (before !== after) {
+          render();
+        }
+      })
+      .catch(() => undefined);
+  }, 3000);
 }
 
 type AskTurn = { role: 'user' | 'assistant'; text: string };
@@ -2422,6 +2460,15 @@ async function toggleAskMic(): Promise<void> {
       chunks.push(event.data);
     }
   };
+  recorder.onerror = () => {
+    window.clearTimeout(askStopTimer);
+    stream.getTracks().forEach((track) => track.stop());
+    askRecording = false;
+    askRecorder = null;
+    askStream = null;
+    askError = t.errorGeneric;
+    renderAsk();
+  };
   recorder.onstop = () => {
     stream.getTracks().forEach((track) => track.stop());
     if (askStream === stream) {
@@ -2439,7 +2486,17 @@ async function toggleAskMic(): Promise<void> {
     const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
     void transcribeAsk(blob);
   };
-  recorder.start();
+  try {
+    recorder.start();
+  } catch {
+    stream.getTracks().forEach((track) => track.stop());
+    askRecording = false;
+    askRecorder = null;
+    askStream = null;
+    askError = t.errorGeneric;
+    renderAsk();
+    return;
+  }
   renderAsk();
   askStopTimer = window.setTimeout(() => {
     if (recorder.state !== 'inactive') {

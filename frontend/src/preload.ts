@@ -12,34 +12,57 @@ type MePayload = {
   planInterval: 'month' | 'year' | null;
   remainingSeconds: number;
   remainingNotes: number | null;
+  stale?: boolean;
 };
 
+type IpcFailure = { code?: string; retryable?: boolean };
+
+function call<T>(channel: string, ...args: unknown[]): Promise<T> {
+  return ipcRenderer.invoke(channel, ...args).then((result: unknown) => {
+    if (result && typeof result === 'object' && 'pithResult' in result) {
+      const envelope = result as unknown as {
+        ok: boolean;
+        data?: T;
+        error?: IpcFailure;
+      };
+      if (!envelope.ok) {
+        const error = new Error(envelope.error?.code || 'internal_error');
+        (error as Error & { retryable?: boolean }).retryable = Boolean(envelope.error?.retryable);
+        throw error;
+      }
+      return envelope.data as T;
+    }
+    return result as T;
+  });
+}
+
 contextBridge.exposeInMainWorld('pith', {
-  getLocale: (): Promise<'en' | 'es'> => ipcRenderer.invoke('i18n:locale'),
-  getMessages: (locale: 'en' | 'es') => ipcRenderer.invoke('i18n:messages', locale),
-  getConfig: (): Promise<{ minListenSeconds: number }> => ipcRenderer.invoke('config:get'),
+  getLocale: (): Promise<'en' | 'es'> => call('i18n:locale'),
+  getMessages: (locale: 'en' | 'es') => call('i18n:messages', locale),
+  getConfig: (): Promise<{ minListenSeconds: number }> => call('config:get'),
   auth: {
-    login: (): Promise<void> => ipcRenderer.invoke('auth:login'),
-    logout: (): Promise<void> => ipcRenderer.invoke('auth:logout'),
-    deleteAccount: (): Promise<void> => ipcRenderer.invoke('auth:deleteAccount'),
-    me: (): Promise<MePayload | null> => ipcRenderer.invoke('auth:me'),
-    upgrade: (): Promise<void> => ipcRenderer.invoke('billing:upgrade'),
-    syncBilling: (): Promise<void> => ipcRenderer.invoke('billing:sync'),
+    login: (): Promise<void> => call('auth:login'),
+    logout: (): Promise<void> => call('auth:logout'),
+    deleteAccount: (): Promise<void> => call('auth:deleteAccount'),
+    me: (): Promise<MePayload | null> => call('auth:me'),
+    upgrade: (): Promise<void> => call('billing:upgrade'),
+    syncBilling: (): Promise<void> => call('billing:sync'),
   },
   capture: {
-    preview: () => ipcRenderer.invoke('capture:preview'),
-    start: () => ipcRenderer.invoke('capture:start'),
-    pause: () => ipcRenderer.invoke('capture:pause'),
-    resume: () => ipcRenderer.invoke('capture:resume'),
+    preview: () => call('capture:preview'),
+    start: () => call('capture:start'),
+    pause: () => call('capture:pause'),
+    resume: () => call('capture:resume'),
     stop: (noteId: string, typedNotes: string) =>
-      ipcRenderer.invoke('debug:stopAndTranscribe', noteId, typedNotes),
-    cancel: () => ipcRenderer.invoke('capture:cancel'),
-    end: (): Promise<{ durationSeconds: number }> => ipcRenderer.invoke('capture:end'),
-    getState: (): Promise<CaptureState> => ipcRenderer.invoke('capture:getState'),
-    arm: (noteId: string): Promise<void> => ipcRenderer.invoke('capture:arm', noteId),
-    disarm: (): Promise<void> => ipcRenderer.invoke('capture:disarm'),
-    resend: () => ipcRenderer.invoke('debug:resend'),
-    hasLastMix: (): Promise<boolean> => ipcRenderer.invoke('debug:hasLastMix'),
+      call('debug:stopAndTranscribe', noteId, typedNotes),
+    cancel: () => call('capture:cancel'),
+    end: (): Promise<{ durationSeconds: number }> => call('capture:end'),
+    getState: (): Promise<CaptureState> => call('capture:getState'),
+    pending: (): Promise<{ noteId: string } | null> => call('capture:pending'),
+    arm: (noteId: string): Promise<void> => call('capture:arm', noteId),
+    disarm: (): Promise<void> => call('capture:disarm'),
+    resend: () => call('debug:resend'),
+    hasLastMix: (): Promise<boolean> => call('debug:hasLastMix'),
     onLevels: (listener: (levels: CaptureLevels) => void): (() => void) => {
       const handler = (_event: unknown, levels: CaptureLevels): void => {
         listener(levels);
@@ -69,21 +92,21 @@ contextBridge.exposeInMainWorld('pith', {
     },
   },
   permissions: {
-    promptMicrophone: (): Promise<boolean> => ipcRenderer.invoke('permissions:microphone'),
+    promptMicrophone: (): Promise<boolean> => call('permissions:microphone'),
   },
   notes: {
-    listWorkspaces: () => ipcRenderer.invoke('notes:listWorkspaces'),
-    createWorkspace: (name: string) => ipcRenderer.invoke('notes:createWorkspace', name),
-    deleteWorkspace: (id: string) => ipcRenderer.invoke('notes:deleteWorkspace', id),
+    listWorkspaces: () => call('notes:listWorkspaces'),
+    createWorkspace: (name: string) => call('notes:createWorkspace', name),
+    deleteWorkspace: (id: string) => call('notes:deleteWorkspace', id),
     setWorkspaceIcon: (id: string, icon: string) =>
-      ipcRenderer.invoke('notes:setWorkspaceIcon', id, icon),
-    listNotes: (workspaceId: string) => ipcRenderer.invoke('notes:listNotes', workspaceId),
+      call('notes:setWorkspaceIcon', id, icon),
+    listNotes: (workspaceId: string) => call('notes:listNotes', workspaceId),
     create: (workspaceId: string, title: string | null) =>
-      ipcRenderer.invoke('notes:create', workspaceId, title),
-    rename: (id: string, title: string | null) => ipcRenderer.invoke('notes:rename', id, title),
-    move: (id: string, workspaceId: string) => ipcRenderer.invoke('notes:move', id, workspaceId),
-    delete: (id: string) => ipcRenderer.invoke('notes:delete', id),
-    cancel: (id: string) => ipcRenderer.invoke('notes:cancel', id),
+      call('notes:create', workspaceId, title),
+    rename: (id: string, title: string | null) => call('notes:rename', id, title),
+    move: (id: string, workspaceId: string) => call('notes:move', id, workspaceId),
+    delete: (id: string) => call('notes:delete', id),
+    cancel: (id: string) => call('notes:cancel', id),
     stop: (
       id: string,
       durationSeconds: number,
@@ -95,25 +118,26 @@ contextBridge.exposeInMainWorld('pith', {
         endSec: number;
         text: string;
       }[] | null,
-    ) => ipcRenderer.invoke('notes:stop', id, durationSeconds, transcriptText, language, turns),
-    retry: (id: string) => ipcRenderer.invoke('notes:retry', id),
-    share: (id: string, emails: string[]) => ipcRenderer.invoke('notes:share', id, emails),
+    ) => call('notes:stop', id, durationSeconds, transcriptText, language, turns),
+    retry: (id: string) => call('notes:retry', id),
+    share: (id: string, emails: string[]) => call('notes:share', id, emails),
   },
   ask: {
     send: (
       messages: { role: 'user' | 'assistant'; text: string }[],
       attachments: { name: string; mime: string; dataBase64: string }[],
       noteId?: string | null,
-    ) => ipcRenderer.invoke('ask:send', messages, attachments, noteId),
+    ) => call('ask:send', messages, attachments, noteId),
     transcribe: (dataBase64: string, mime: string, name: string) =>
-      ipcRenderer.invoke('ask:transcribe', dataBase64, mime, name),
+      call('ask:transcribe', dataBase64, mime, name),
   },
   shell: {
     openSpike: (workspaceId: string, workspaceName: string): Promise<void> =>
-      ipcRenderer.invoke('shell:openSpike', workspaceId, workspaceName),
-    openNotepad: (): Promise<void> => ipcRenderer.invoke('shell:openNotepad'),
+      call('shell:openSpike', workspaceId, workspaceName),
+    openNotepad: (keepProcessing?: boolean): Promise<void> =>
+      call('shell:openNotepad', keepProcessing),
     openSite: (page: 'terms' | 'privacy'): Promise<void> =>
-      ipcRenderer.invoke('shell:openSite', page),
+      call('shell:openSite', page),
   },
 });
 

@@ -14,6 +14,7 @@ let pauseWarnTimer: number | null = null;
 let pauseCancelTimer: number | null = null;
 let captureState: 'idle' | 'listening' | 'paused' = 'idle';
 let uploadPaused = false;
+let micOnly = false;
 let waitingForMicrophone = false;
 let meetingStartedAt: Date | null = null;
 let summaryLines: string[] = [];
@@ -50,7 +51,7 @@ function applyCopy(): void {
 }
 
 function renderInputDevice(): void {
-  $('deviceWarning').textContent = micLost ? t.errorMicLost : '';
+  $('deviceWarning').textContent = micLost ? t.errorMicLost : micOnly ? t.micOnly : '';
 }
 
 function noteBody(): HTMLTextAreaElement {
@@ -797,6 +798,9 @@ function errorCode(error: unknown): string {
     'not_listening',
     'upload_paused',
     'backend_unavailable',
+    'slices_missing',
+    'request_timeout',
+    'no_source',
     'File too large',
     'no_last_mix',
   ];
@@ -839,8 +843,12 @@ function setError(code: string): void {
                     ? t.errorNotListening
                   : code === 'upload_paused'
                     ? t.uploadPaused
-                  : code === 'backend_unavailable'
+                  : code === 'backend_unavailable' || code === 'request_timeout'
                     ? t.backendUnavailable
+                  : code === 'slices_missing'
+                    ? t.slicesMissing
+                  : code === 'no_source'
+                    ? t.noSource
             : code === 'mic_format'
                 ? t.errorMicDenied
             : code === 'no_google_client'
@@ -1029,13 +1037,15 @@ function applyLevels(levels: CaptureLevels): void {
   }
 }
 
-function applyStart(result: { inputName: string }): void {
+function applyStart(result: { inputName: string; systemAudioEnabled?: boolean }): void {
   if (meetingStartedAt == null) {
     meetingStartedAt = new Date();
   }
+  micOnly = result.systemAudioEnabled === false;
   renderNoteMeta();
   captureState = 'listening';
   applyDevice({ inputName: result.inputName, lost: !result.inputName });
+  renderInputDevice();
   applyGenerateEnabled();
 }
 
@@ -1067,11 +1077,36 @@ function noteTitleValue(): string | null {
   return value;
 }
 
+async function leaveRecording(): Promise<void> {
+  if (generating) {
+    await saveLiveTitle().catch(() => undefined);
+    pith.shell.openNotepad(true);
+    return;
+  }
+  const noteId = liveNoteId;
+  if (noteId && !captureFinished) {
+    clearPauseLimit();
+    try {
+      await pith.capture.cancel();
+    } catch {
+      // The helper is already idle after Home starts closing the recorder.
+    }
+    await pith.notes.cancel(noteId).catch(() => undefined);
+    liveNoteId = null;
+    await pith.capture.disarm().catch(() => undefined);
+  } else {
+    await saveLiveTitle().catch(() => undefined);
+  }
+  pith.shell.openNotepad();
+}
+
 async function saveLiveTitle(): Promise<void> {
   if (!liveNoteId) {
     return;
   }
-  await pith.notes.rename(liveNoteId, noteTitleValue()).catch(() => undefined);
+  await pith.notes.rename(liveNoteId, noteTitleValue()).catch((error: unknown) => {
+    setError(errorCode(error));
+  });
 }
 
 async function bindLiveNote(): Promise<void> {
@@ -1159,19 +1194,29 @@ async function init(): Promise<void> {
   }
   pith.capture.onLevels(applyLevels);
   pith.capture.onDevice(applyDevice);
-  await syncButtons();
-
-  await withBusy(async () => {
-    try {
-      await startRecording();
-    } catch (error) {
-      resetTimer();
-      throw error;
-    }
+  window.addEventListener('unhandledrejection', (event) => {
+    setError(errorCode(event.reason));
   });
+  await syncButtons();
+  const pending = await pith.capture.pending().catch(() => null);
+  if (pending?.noteId) {
+    liveNoteId = pending.noteId;
+    uploadPaused = true;
+    setError('upload_paused');
+    applyGenerateEnabled();
+  } else {
+    await withBusy(async () => {
+      try {
+        await startRecording();
+      } catch (error) {
+        resetTimer();
+        throw error;
+      }
+    });
+  }
 
   $('backToNotepad').addEventListener('click', () => {
-    void saveLiveTitle().finally(() => pith.shell.openNotepad());
+    void leaveRecording();
   });
   const title = document.getElementById('noteTitle') as HTMLInputElement;
   title.addEventListener('focus', () => {

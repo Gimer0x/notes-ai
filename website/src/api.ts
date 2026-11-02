@@ -17,6 +17,7 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   return fetch(`${apiUrl()}${path}`, {
     ...init,
     credentials: 'include',
+    signal: init.signal ?? AbortSignal.timeout(20_000),
     headers: {
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...init.headers,

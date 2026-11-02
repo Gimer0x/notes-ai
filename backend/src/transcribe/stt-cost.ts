@@ -113,6 +113,7 @@ export async function loadOpenAiModelRates(
       Accept: 'text/markdown, text/plain;q=0.9',
       'User-Agent': 'Pith (STT cost from OpenAI model docs)',
     },
+    signal: AbortSignal.timeout(4_000),
   });
   if (!response.ok) {
     throw new Error(`openai_model_docs_${response.status}`);

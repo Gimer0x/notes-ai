@@ -47,6 +47,7 @@ export type NoteResponse = {
   language: 'en' | 'es' | null;
   errorCode: NoteErrorCode | null;
   errorMessage: string | null;
+  transcriptComplete: boolean;
   startedAt: string | null;
   endedAt: string | null;
   durationSeconds: number | null;
@@ -73,6 +74,7 @@ export type NoteRow = {
   language: 'en' | 'es' | null;
   error_code: NoteErrorCode | null;
   error_message: string | null;
+  transcript_complete: boolean;
   started_at: Date | null;
   ended_at: Date | null;
   duration_seconds: number | null;
@@ -102,6 +104,7 @@ export function toNote(row: NoteRow): NoteResponse {
     language: row.language,
     errorCode: row.error_code,
     errorMessage: row.error_message,
+    transcriptComplete: row.transcript_complete !== false,
     startedAt: row.started_at ? row.started_at.toISOString() : null,
     endedAt: row.ended_at ? row.ended_at.toISOString() : null,
     durationSeconds: row.duration_seconds,

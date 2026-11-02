@@ -17,13 +17,13 @@ export class OpenAiSummaryService extends SummaryService {
   ): Promise<{ bullets: string[] }> {
     const apiKey = this.config.get<string>('OPENAI_API_KEY')?.trim();
     if (!apiKey) {
-      throw new ServiceUnavailableException('OPENAI_API_KEY is not set');
+      throw new ServiceUnavailableException('summary_unconfigured');
     }
     const model = this.config.get<string>('OPENAI_SUMMARY_MODEL')?.trim() || DEFAULT_MODEL;
     const spoken = language === 'es' ? 'Spanish' : 'English';
     const closing = language === 'es' ? 'Conclusiones' : 'Conclusions';
     const steps = language === 'es' ? 'Próximos pasos' : 'Next steps';
-    const openai = new OpenAI({ apiKey });
+    const openai = new OpenAI({ apiKey, maxRetries: 1, timeout: 120_000 });
     try {
       const completion = await openai.chat.completions.create({
         model,

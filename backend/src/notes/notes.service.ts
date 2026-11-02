@@ -16,7 +16,7 @@ import { WorkspacesService } from './workspaces.service';
 
 const TITLE_MAX = 120;
 const NOTE_COLUMNS = `id, workspace_id, title, status, summary_text, transcript_text, transcript_turns, language,
-  error_code, error_message, started_at, ended_at, duration_seconds, created_at, updated_at`;
+  error_code, error_message, transcript_complete, started_at, ended_at, duration_seconds, created_at, updated_at`;
 
 @Injectable()
 export class NotesService {
@@ -154,7 +154,7 @@ export class NotesService {
       if (!row) {
         throw new ConflictException('not_listening');
       }
-      await this.billing.recordListen(userId, durationSeconds, query);
+      await this.billing.recordListen(userId, noteId, durationSeconds, query);
     });
     if (!transcript) {
       return this.markReady(userId, noteId, null);

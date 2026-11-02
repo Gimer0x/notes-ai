@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -34,7 +35,7 @@ export class NotesController {
     @Param('workspaceId') workspaceId: string,
     @Body() body: { title?: string | null },
   ): Promise<NoteResponse> {
-    return this.notes.create(userId, workspaceId, body.title ?? null);
+    return this.notes.create(userId, workspaceId, optionalText(body?.title, 'title'));
   }
 
   @Get('notes/:id')
@@ -48,7 +49,7 @@ export class NotesController {
     @Param('id') noteId: string,
     @Body() body: { title?: string | null },
   ): Promise<NoteResponse> {
-    return this.notes.rename(userId, noteId, body.title ?? null);
+    return this.notes.rename(userId, noteId, optionalText(body?.title, 'title'));
   }
 
   @Post('notes/:id/move')
@@ -90,6 +91,9 @@ export class NotesController {
       turns?: TranscriptTurn[] | null;
     },
   ): Promise<NoteResponse> {
+    if (body.turns != null && !Array.isArray(body.turns)) {
+      throw new BadRequestException('turns');
+    }
     const language = body.language === 'en' || body.language === 'es' ? body.language : null;
     return this.notes.stop(
       userId,
@@ -106,4 +110,14 @@ export class NotesController {
   retry(@CurrentUserId() userId: string, @Param('id') noteId: string): Promise<NoteResponse> {
     return this.notes.retry(userId, noteId);
   }
+}
+
+function optionalText(value: unknown, code: string): string | null {
+  if (value == null) {
+    return null;
+  }
+  if (typeof value !== 'string') {
+    throw new BadRequestException(code);
+  }
+  return value;
 }

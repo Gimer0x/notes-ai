@@ -222,18 +222,30 @@ final class CaptureSession: @unchecked Sendable {
       group.addTask { await self.startMic(intended.input ?? AudioDevices.preferredInput()) }
       group.addTask { await self.startTap() }
     }
+    let micReady = withLock { !inputUID.isEmpty }
+    let systemReady = withLock { systemAudioEnabled }
+    if !micReady && !systemReady {
+      await closeHardware()
+      throw CaptureError.noSource
+    }
     startLevels()
     router.start()
     router.rememberCurrent()
     let snap = AudioDevices.snapshot()
     withLock {
-      inputUID = snap.input?.uid ?? inputUID
+      if micReady {
+        inputUID = snap.input?.uid ?? inputUID
+      } else {
+        inputUID = ""
+      }
       outputUID = snap.output?.uid ?? ""
       inputRate = snap.input?.sampleRate ?? inputRate
       outputRate = snap.output?.sampleRate ?? outputRate
       hardwareOn = true
     }
-    publish(snap.input)
+    if micReady {
+      publish(snap.input)
+    }
   }
 
   private func startMic(_ device: AudioDeviceInfo?) async {

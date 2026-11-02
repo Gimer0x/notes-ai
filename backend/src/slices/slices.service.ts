@@ -1,6 +1,5 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { readFile, unlink, mkdir, writeFile } from 'fs/promises';
-import * as os from 'os';
 import * as path from 'path';
 import {
   BadRequestException,
@@ -17,6 +16,7 @@ import { DbService } from '../db/db.service';
 import { cleanSpeech } from '../notes/clean-speech';
 import { SummaryService } from '../summary/summary.service';
 import { OpenAiTranscribeService } from '../transcribe/openai-transcribe.service';
+import { sliceFailureIsFinal, sliceRetryDelaySeconds } from './slice-retry';
 
 const MAX_IN_FLIGHT = 2;
 const MAX_ATTEMPTS = 3;
@@ -26,7 +26,8 @@ const CLAIM_SQL = `SELECT s.id, s.note_id, s.user_id, s.seq, s.status, s.source,
                 n.final_seq, n.typed_notes, n.status AS note_status
          FROM note_slices s
          JOIN notes n ON n.id = s.note_id
-         WHERE s.status = 'queued'`;
+         WHERE s.status = 'queued'
+           AND (s.retry_after IS NULL OR s.retry_after <= now())`;
 
 const FAIR_FILTER = `
            AND s.user_id NOT IN (
@@ -123,12 +124,22 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
     if (note.status !== 'listening' && note.status !== 'paused' && note.status !== 'processing') {
       throw new ConflictException('not_listening');
     }
-    const prior = await this.db.query<{ id: string; status: string; wav_path: string | null }>(
-      `SELECT id, status, wav_path FROM note_slices WHERE note_id = $1 AND seq = $2`,
+    const checksum = createHash('sha256').update(input.wav).digest('hex');
+    const prior = await this.db.query<{
+      id: string;
+      status: string;
+      wav_path: string | null;
+      content_sha256: string | null;
+    }>(
+      `SELECT id, status, wav_path, content_sha256 FROM note_slices WHERE note_id = $1 AND seq = $2`,
       [input.noteId, input.seq],
     );
     const existing = prior.rows[0];
-    if (existing && (existing.status === 'running' || existing.status === 'done')) {
+    if (existing) {
+      const same = !existing.content_sha256 || existing.content_sha256 === checksum;
+      if (!same) {
+        throw new ConflictException('slice_conflict');
+      }
       return { sliceId: existing.id };
     }
     const dir = await this.sliceDir();
@@ -137,20 +148,26 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
     try {
       const saved = await this.db.query<{ id: string }>(
         `INSERT INTO note_slices (
-           note_id, user_id, seq, status, source, start_sec, end_sec, wav_path
-         ) VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7)
+           note_id, user_id, seq, status, source, start_sec, end_sec, wav_path, content_sha256
+         ) VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7, $8)
          ON CONFLICT (note_id, seq) DO UPDATE
            SET status = 'queued',
                source = EXCLUDED.source,
                start_sec = EXCLUDED.start_sec,
                end_sec = EXCLUDED.end_sec,
                wav_path = EXCLUDED.wav_path,
+               content_sha256 = EXCLUDED.content_sha256,
                transcript = NULL,
                language = NULL,
                attempts = 0,
                locked_at = NULL,
+               retry_after = NULL,
                finished_at = NULL
            WHERE note_slices.status IN ('queued', 'failed')
+             AND (
+               note_slices.content_sha256 IS NULL
+               OR note_slices.content_sha256 = EXCLUDED.content_sha256
+             )
          RETURNING id`,
         [
           input.noteId,
@@ -160,19 +177,13 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
           input.startSec,
           input.endSec,
           wavPath,
+          checksum,
         ],
       );
       const row = saved.rows[0];
       if (!row) {
         await unlink(wavPath).catch(() => undefined);
-        const id = existing?.id;
-        if (!id) {
-          throw new ConflictException('slice_closed');
-        }
-        return { sliceId: id };
-      }
-      if (existing?.wav_path && existing.wav_path !== wavPath) {
-        await unlink(existing.wav_path).catch(() => undefined);
+        throw new ConflictException('slice_conflict');
       }
       void this.tick().catch((error: unknown) => {
         this.logger.warn(error instanceof Error ? error.message : 'slice_tick_failed');
@@ -251,6 +262,39 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('duration_seconds');
     }
     await this.db.transaction(async (query) => {
+      const current = await query<{ status: string; final_seq: number | null }>(
+        `SELECT status, final_seq FROM notes WHERE id = $1 AND user_id = $2`,
+        [input.noteId, input.userId],
+      );
+      const note = current.rows[0];
+      if (!note) {
+        throw new NotFoundException('note_not_found');
+      }
+      if (note.status === 'processing' || note.status === 'ready') {
+        if (note.final_seq === input.finalSeq) {
+          return;
+        }
+        throw new ConflictException('note_state');
+      }
+      if (note.status !== 'listening' && note.status !== 'paused') {
+        throw new ConflictException('note_state');
+      }
+      if (input.finalSeq > 0) {
+        const present = await query<{ seq: number }>(
+          `SELECT seq FROM note_slices WHERE note_id = $1 AND seq <= $2`,
+          [input.noteId, input.finalSeq],
+        );
+        const have = new Set(present.rows.map((row) => Number(row.seq)));
+        const missing: number[] = [];
+        for (let seq = 1; seq <= input.finalSeq; seq += 1) {
+          if (!have.has(seq)) {
+            missing.push(seq);
+          }
+        }
+        if (missing.length > 0) {
+          throw new ConflictException({ code: 'slices_missing', missing });
+        }
+      }
       const updated = await query(
         `UPDATE notes
          SET status = 'processing',
@@ -269,9 +313,10 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
           Math.round(input.durationSeconds),
         ],
       );
-      if (updated.rows[0]) {
-        await this.billing.recordListen(input.userId, input.durationSeconds, query);
+      if (!updated.rows[0]) {
+        throw new ConflictException('note_state');
       }
+      await this.billing.recordListen(input.userId, input.noteId, input.durationSeconds, query);
     });
     await this.maybeSummarize(input.noteId);
   }
@@ -284,6 +329,7 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.recoverStale();
       await this.purgeFailedAudio();
+      await this.expireMissingSlices();
       await this.resumeSummaries();
       while (this.inFlight < MAX_IN_FLIGHT) {
         const job = await this.claim();
@@ -349,15 +395,18 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
       );
       await unlink(job.wav_path).catch(() => undefined);
     } catch (error) {
-      const reason = error instanceof Error ? error.message : '';
-      const failedForGood = job.attempts >= MAX_ATTEMPTS || reason === 'missing_wav';
+      const failedForGood = sliceFailureIsFinal(error, job.attempts, MAX_ATTEMPTS);
       await this.db.query(
         `UPDATE note_slices
          SET status = $2,
              locked_at = NULL,
+             retry_after = CASE
+               WHEN $2 = 'queued' THEN now() + make_interval(secs => $3)
+               ELSE NULL
+             END,
              finished_at = CASE WHEN $2 = 'failed' THEN now() ELSE NULL END
          WHERE id = $1`,
-        [job.id, failedForGood ? 'failed' : 'queued'],
+        [job.id, failedForGood ? 'failed' : 'queued', sliceRetryDelaySeconds(job.attempts)],
       );
       if (failedForGood) {
         this.logger.warn(
@@ -409,15 +458,40 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
     if (slices.rows.length !== row.final_seq) {
       return;
     }
+    const lease = randomUUID();
     const claimed = await this.db.query(
-      `UPDATE notes SET summary_running = true, updated_at = now()
-       WHERE id = $1 AND status = 'processing' AND summary_running = false
+      `UPDATE notes
+       SET summary_running = true,
+           summary_lease = $2,
+           summary_lease_until = now() + interval '15 minutes',
+           summary_attempts = summary_attempts + 1,
+           updated_at = now()
+       WHERE id = $1
+         AND status = 'processing'
+         AND (
+           summary_running = false
+           OR summary_lease_until IS NULL
+           OR summary_lease_until < now()
+         )
        RETURNING id`,
-      [noteId],
+      [noteId, lease],
     );
     if (!claimed.rows[0]) {
       return;
     }
+    const beat = setInterval(() => {
+      void this.db
+        .query(
+          `UPDATE notes
+           SET summary_lease_until = now() + interval '15 minutes'
+           WHERE id = $1 AND summary_lease = $2`,
+          [noteId, lease],
+        )
+        .catch((error: unknown) => {
+          this.logger.warn(error instanceof Error ? error.message : 'summary_lease_failed');
+        });
+    }, 30_000);
+    beat.unref?.();
     const turns = slices.rows
       .map((slice) => ({
         source: slice.source,
@@ -429,36 +503,45 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
     const spoken = turns.map((turn) => turn.text).join('\n\n');
     const transcript = [row.typed_notes?.trim() ?? '', spoken].filter((part) => part.length > 0).join('\n\n');
     const language = slices.rows.find((slice) => slice.language)?.language ?? 'en';
-    await this.db.query(
-      `UPDATE notes
-       SET transcript_text = $2,
-           transcript_turns = $3,
-           language = $4,
-           updated_at = now()
-       WHERE id = $1`,
-      [noteId, transcript || null, turns.length > 0 ? JSON.stringify(turns) : null, language],
-    );
-    if (!transcript) {
+    try {
       await this.db.query(
         `UPDATE notes
-         SET status = 'ready', summary_text = NULL, summary_running = false, updated_at = now()
-         WHERE id = $1`,
-        [noteId],
+         SET transcript_text = $2,
+             transcript_turns = $3,
+             language = $4,
+             transcript_complete = true,
+             updated_at = now()
+         WHERE id = $1 AND summary_lease = $5`,
+        [noteId, transcript || null, turns.length > 0 ? JSON.stringify(turns) : null, language, lease],
       );
-      return;
-    }
-    try {
+      if (!transcript) {
+        await this.db.query(
+          `UPDATE notes
+           SET status = 'ready',
+               summary_text = NULL,
+               summary_running = false,
+               summary_lease = NULL,
+               summary_lease_until = NULL,
+               updated_at = now()
+           WHERE id = $1 AND summary_lease = $2`,
+          [noteId, lease],
+        );
+        return;
+      }
       const summary = await this.summary.summarize(transcript, language);
       await this.db.query(
         `UPDATE notes
          SET status = 'ready',
              summary_text = $2,
              summary_running = false,
+             summary_lease = NULL,
+             summary_lease_until = NULL,
              error_code = NULL,
              error_message = NULL,
+             transcript_complete = true,
              updated_at = now()
-         WHERE id = $1`,
-        [noteId, summary.bullets.join('\n')],
+         WHERE id = $1 AND summary_lease = $3`,
+        [noteId, summary.bullets.join('\n'), lease],
       );
     } catch (error) {
       await this.db.query(
@@ -467,10 +550,14 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
              error_code = 'gpt',
              error_message = $2,
              summary_running = false,
+             summary_lease = NULL,
+             summary_lease_until = NULL,
              updated_at = now()
-         WHERE id = $1`,
-        [noteId, safeErrorMessage(error, 'summary_failed')],
+         WHERE id = $1 AND summary_lease = $3`,
+        [noteId, safeErrorMessage(error, 'summary_failed'), lease],
       );
+    } finally {
+      clearInterval(beat);
     }
   }
 
@@ -496,7 +583,10 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
            error_message = 'slice_failed',
            transcript_text = $2,
            transcript_turns = $3,
+           transcript_complete = false,
            summary_running = false,
+           summary_lease = NULL,
+           summary_lease_until = NULL,
            updated_at = now()
        WHERE id = $1 AND status = 'processing'`,
       [noteId, transcript || null, turns.length > 0 ? JSON.stringify(turns) : null],
@@ -511,10 +601,40 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
     );
     await this.db.query(
       `UPDATE notes
-       SET summary_running = false, updated_at = now()
+       SET summary_running = false,
+           summary_lease = NULL,
+           summary_lease_until = NULL,
+           updated_at = now()
        WHERE summary_running = true
          AND status = 'processing'
-         AND updated_at < now() - interval '15 minutes'`,
+         AND (summary_lease_until IS NULL OR summary_lease_until < now())`,
+    );
+  }
+
+  /** A sealed note with holes cannot wait forever. The client can retry from saved text. */
+  private async expireMissingSlices(): Promise<void> {
+    await this.db.query(
+      `UPDATE notes
+       SET status = 'failed',
+           error_code = 'upload',
+           error_message = 'slices_missing',
+           transcript_complete = false,
+           summary_running = false,
+           summary_lease = NULL,
+           summary_lease_until = NULL,
+           updated_at = now()
+       WHERE status = 'processing'
+         AND final_seq IS NOT NULL
+         AND final_seq > 0
+         AND updated_at < now() - interval '30 minutes'
+         AND NOT EXISTS (
+           SELECT 1 FROM note_slices s
+           WHERE s.note_id = notes.id AND s.status IN ('queued', 'running')
+         )
+         AND (
+           SELECT count(*) FROM note_slices s
+           WHERE s.note_id = notes.id AND s.seq <= notes.final_seq
+         ) < notes.final_seq`,
     );
   }
 
@@ -557,7 +677,8 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async sliceDir(): Promise<string> {
-    const dir = path.join(os.tmpdir(), 'pith-slices');
+    const configured = process.env.SLICE_DIR?.trim();
+    const dir = configured || path.join(process.cwd(), 'data', 'slices');
     await mkdir(dir, { recursive: true });
     return dir;
   }

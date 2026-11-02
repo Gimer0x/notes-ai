@@ -12,6 +12,7 @@ coverage/
 .vscode/
 frontend/release/
 backend/dist/
+backend/data/
 frontend/dist/
 frontend/dist-test/
 frontend/native/CaptureHelper/.build/

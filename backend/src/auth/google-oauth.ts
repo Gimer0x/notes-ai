@@ -43,6 +43,7 @@ export async function exchangeGoogleCode(input: {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
+    signal: AbortSignal.timeout(15_000),
   });
   const tokenJson = (await tokenResponse.json()) as {
     access_token?: string;
@@ -50,14 +51,12 @@ export async function exchangeGoogleCode(input: {
     error_description?: string;
   };
   if (!tokenResponse.ok || !tokenJson.access_token) {
-    throw new Error(
-      tokenJson.error_description || tokenJson.error || 'google_token_failed',
-    );
+    throw new Error(tokenJson.error === 'invalid_grant' ? 'invalid_grant' : 'google_token_failed');
   }
-  const userResponse = await fetch(
-    'https://openidconnect.googleapis.com/v1/userinfo',
-    { headers: { Authorization: `Bearer ${tokenJson.access_token}` } },
-  );
+  const userResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+    headers: { Authorization: `Bearer ${tokenJson.access_token}` },
+    signal: AbortSignal.timeout(15_000),
+  });
   const profile = (await userResponse.json()) as {
     sub?: string;
     email?: string;
@@ -66,7 +65,7 @@ export async function exchangeGoogleCode(input: {
     error?: string;
   };
   if (!userResponse.ok || !profile.sub || !profile.email) {
-    throw new Error(profile.error || 'google_profile_failed');
+    throw new Error('google_profile_failed');
   }
   return {
     subject: profile.sub,

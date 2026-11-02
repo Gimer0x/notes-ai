@@ -6,6 +6,7 @@ import {
   Injectable,
   Logger,
   OnModuleInit,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -100,10 +101,10 @@ export class StripeService implements OnModuleInit {
     const stripe = this.requireStripe();
     const secret = this.config.get<string>('STRIPE_WEBHOOK_SECRET')?.trim();
     if (!secret) {
-      throw new BadRequestException('STRIPE_WEBHOOK_SECRET is not set');
+      throw new ServiceUnavailableException('stripe_unconfigured');
     }
     if (!signature) {
-      throw new UnauthorizedException('missing stripe signature');
+      throw new UnauthorizedException('stripe_signature');
     }
     let event: Stripe.Event;
     try {
@@ -255,7 +256,7 @@ export class StripeService implements OnModuleInit {
 
   private requireStripe(): Stripe {
     if (!this.stripe) {
-      throw new BadRequestException('STRIPE_SECRET_KEY is not set');
+      throw new ServiceUnavailableException('stripe_unconfigured');
     }
     return this.stripe;
   }
@@ -269,17 +270,30 @@ export class StripeService implements OnModuleInit {
 
   async cancelSubscription(subscriptionId: string): Promise<void> {
     if (!this.stripe) {
-      return;
+      await this.rememberCancelError(subscriptionId, 'stripe_unavailable');
+      throw new ServiceUnavailableException('stripe_unavailable');
     }
     try {
       await this.stripe.subscriptions.cancel(subscriptionId);
+      await this.rememberCancelError(subscriptionId, null);
     } catch (error) {
       if (cancellationFailureCode(error) === 'gone') {
+        await this.rememberCancelError(subscriptionId, null);
         return;
       }
       this.logger.warn('subscription cancel failed');
+      await this.rememberCancelError(subscriptionId, 'stripe_cancel_failed');
       throw new BadGatewayException('stripe_cancel_failed');
     }
+  }
+
+  private async rememberCancelError(subscriptionId: string, code: string | null): Promise<void> {
+    await this.db.query(
+      `UPDATE users
+       SET subscription_cancel_error = $2, updated_at = now()
+       WHERE stripe_subscription_id = $1`,
+      [subscriptionId, code],
+    );
   }
 }
 

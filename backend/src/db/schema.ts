@@ -94,6 +94,19 @@ export const SCHEMA_STATEMENTS: string[] = [
     UNIQUE (note_id, seq)
   )`,
   `CREATE INDEX IF NOT EXISTS note_slices_claim_idx ON note_slices (status, created_at)`,
+  `ALTER TABLE note_slices ADD COLUMN IF NOT EXISTS content_sha256 TEXT`,
+  `ALTER TABLE note_slices ADD COLUMN IF NOT EXISTS retry_after TIMESTAMPTZ`,
+  `ALTER TABLE notes ADD COLUMN IF NOT EXISTS summary_lease TEXT`,
+  `ALTER TABLE notes ADD COLUMN IF NOT EXISTS summary_lease_until TIMESTAMPTZ`,
+  `ALTER TABLE notes ADD COLUMN IF NOT EXISTS summary_attempts INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE notes ADD COLUMN IF NOT EXISTS transcript_complete BOOLEAN NOT NULL DEFAULT true`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_cancel_error TEXT`,
+  `CREATE TABLE IF NOT EXISTS listen_ledger (
+    note_id UUID PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    seconds INTEGER NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`,
 ];
 
 export const SEED_PLANS_SQL = `

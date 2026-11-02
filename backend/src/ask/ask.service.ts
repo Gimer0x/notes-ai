@@ -52,7 +52,7 @@ export class AskService {
     }
     const apiKey = this.config.get<string>('OPENAI_API_KEY')?.trim();
     if (!apiKey) {
-      throw new ServiceUnavailableException('OPENAI_API_KEY is not set');
+      throw new ServiceUnavailableException('ask_unconfigured');
     }
     const model = this.config.get<string>('OPENAI_SUMMARY_MODEL')?.trim() || DEFAULT_MODEL;
     const meetings = await this.loadMeetings(userId);
@@ -99,7 +99,7 @@ export class AskService {
     }
     const apiKey = this.config.get<string>('OPENAI_API_KEY')?.trim();
     if (!apiKey) {
-      throw new ServiceUnavailableException('OPENAI_API_KEY is not set');
+      throw new ServiceUnavailableException('ask_unconfigured');
     }
     const model = this.config.get<string>('OPENAI_TRANSCRIBE_MODEL')?.trim() || 'gpt-4o-mini-transcribe';
     const openai = new OpenAI({ apiKey });

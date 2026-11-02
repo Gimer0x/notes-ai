@@ -134,13 +134,21 @@ export class HelperClient {
     this.startProcess();
     const id = String(this.nextId++);
     const line = JSON.stringify({ id, cmd }) + '\n';
-    const timeoutMs = cmd === 'stop' || cmd === 'cancel' || cmd === 'export' ? 20_000 : 15_000;
+    const timeoutMs =
+      cmd === 'stop' || cmd === 'cancel' || cmd === 'export'
+        ? 20_000
+        : cmd === 'start' || cmd === 'preview'
+          ? 25_000
+          : 15_000;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (!this.pending.has(id)) {
           return;
         }
         this.pending.delete(id);
+        if (cmd === 'start' || cmd === 'preview') {
+          this.child?.kill();
+        }
         reject(new Error('helper_timeout'));
       }, timeoutMs);
       this.pending.set(id, {

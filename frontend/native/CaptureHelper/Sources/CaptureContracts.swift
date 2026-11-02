@@ -13,6 +13,7 @@ enum CaptureError: String, Error {
   case micDenied = "mic_denied"
   case empty = "empty"
   case tooShort = "too_short"
+  case noSource = "no_source"
 }
 
 struct AudioDeviceInfo: Equatable {

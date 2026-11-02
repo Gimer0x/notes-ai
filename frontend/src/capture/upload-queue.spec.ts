@@ -4,6 +4,7 @@ import {
   batchDone,
   captureFiles,
   currentPiece,
+  manifestExpired,
   markPieceUploaded,
   prepareBatch,
   type TrackPiece,
@@ -34,6 +35,13 @@ describe('upload queue', () => {
     const second = prepareBatch(allocated, 300, 300, ['/tmp/b.wav'], [piece(0, 300)]);
     assert.equal(currentPiece(second)?.seq, 2);
     assert.equal(currentPiece(second)?.startSec, 300);
+  });
+
+  it('drops a crashed upload only after the retry window', () => {
+    const savedAt = 1_000_000;
+    assert.equal(manifestExpired(savedAt, savedAt + 60_000, 600), false);
+    assert.equal(manifestExpired(savedAt, savedAt + 601_000, 600), true);
+    assert.equal(manifestExpired(savedAt, savedAt + 999_000, 0), false);
   });
 
   it('lists every capture file that must stay until the batch finishes', () => {

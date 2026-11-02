@@ -154,7 +154,7 @@ async function startLoopback(expectedState: string): Promise<{
     finish(false);
     rejectCode!(new Error('auth_timeout'));
   }, LOGIN_TIMEOUT_MS);
-  void codePromise.finally(() => clearTimeout(timeout));
+  void codePromise.finally(() => clearTimeout(timeout)).catch(() => undefined);
   return {
     port: addr.port,
     waitForCode: () => codePromise,

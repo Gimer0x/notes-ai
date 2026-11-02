@@ -26,6 +26,7 @@ type NoteRecord = {
   language: 'en' | 'es' | null;
   errorCode: 'upload' | 'stt' | 'gpt' | null;
   errorMessage: string | null;
+  transcriptComplete?: boolean;
   startedAt: string | null;
   endedAt: string | null;
   durationSeconds: number | null;
@@ -56,6 +57,7 @@ type PithApi = {
       planInterval: 'month' | 'year' | null;
       remainingSeconds: number;
       remainingNotes: number | null;
+      stale?: boolean;
     } | null>;
     upgrade: () => Promise<void>;
     syncBilling: () => Promise<void>;
@@ -69,6 +71,7 @@ type PithApi = {
     cancel: () => Promise<void>;
     end: () => Promise<{ durationSeconds: number }>;
     getState: () => Promise<'idle' | 'listening' | 'paused'>;
+    pending: () => Promise<{ noteId: string } | null>;
     arm: (noteId: string) => Promise<void>;
     disarm: () => Promise<void>;
     resend: () => Promise<{ text: string; language: Locale }>;
@@ -111,7 +114,7 @@ type PithApi = {
   };
   shell: {
     openSpike: (workspaceId: string, workspaceName: string) => Promise<void>;
-    openNotepad: () => Promise<void>;
+    openNotepad: (keepProcessing?: boolean) => Promise<void>;
     openSite: (page: 'terms' | 'privacy') => Promise<void>;
   };
 };

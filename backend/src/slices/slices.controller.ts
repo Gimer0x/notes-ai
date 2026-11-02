@@ -39,7 +39,13 @@ export class SlicesController {
     @Body() body: { seq?: string; startSec?: string; endSec?: string; source?: string },
   ): Promise<{ sliceId: string }> {
     if (!file?.buffer?.length) {
-      throw new BadRequestException('audio file is required');
+      throw new BadRequestException('audio_required');
+    }
+    if (file.buffer.length < 44 || file.buffer.toString('ascii', 0, 4) !== 'RIFF') {
+      throw new BadRequestException('invalid_audio');
+    }
+    if (body == null || typeof body !== 'object') {
+      throw new BadRequestException('invalid_input');
     }
     const source = body.source === 'mic' || body.source === 'system' || body.source === 'mix' ? body.source : null;
     if (!source) {

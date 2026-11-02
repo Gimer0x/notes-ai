@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, systemPreferences } from 'electron';
-import { readFile, unlink } from 'fs/promises';
+import { randomUUID } from 'crypto';
+import { copyFile, mkdir, readFile, rm, unlink, writeFile } from 'fs/promises';
 import * as path from 'path';
 import { AuthService } from './auth/auth.service';
 import type { CaptureDevice, CaptureLevels } from './capture/capture.service';
@@ -9,9 +10,11 @@ import {
   captureFiles,
   currentPiece,
   markPieceUploaded,
+  manifestExpired,
   prepareBatch,
   type CaptureFiles,
   type PreparedBatch,
+  type QueueManifest,
 } from './capture/upload-queue';
 import { requestScreenCaptureAccess } from './capture/helper-client';
 import { NativeCaptureService } from './capture/native-capture.service';
@@ -24,6 +27,37 @@ import en from './i18n/en.json';
 import es from './i18n/es.json';
 
 loadFrontendEnv();
+
+type IpcError = { code: string; message: string; retryable: boolean };
+
+function toIpcError(error: unknown): IpcError {
+  const raw = error instanceof Error ? error.message : '';
+  const code = /^[a-z0-9_]+$/i.test(raw) ? raw : 'internal_error';
+  const retryable =
+    code === 'upload_paused' ||
+    code === 'backend_unavailable' ||
+    code === 'request_timeout' ||
+    code === 'slices_missing' ||
+    code === 'summary_failed' ||
+    code === 'summary_unavailable' ||
+    code === 'transcription_unavailable' ||
+    code === 'google_unavailable' ||
+    code === 'billing_sync_failed' ||
+    code === 'stripe_unavailable';
+  return { code, message: code, retryable };
+}
+
+function handleIpc(channel: string, listener: (...args: any[]) => unknown): void {
+  ipcMain.handle(channel, async (...args) => {
+    try {
+      const data = await listener(...args);
+      return { pithResult: true, ok: true, data };
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'ipc', channel, ...toIpcError(error) }));
+      return { pithResult: true, ok: false, error: toIpcError(error) };
+    }
+  });
+}
 
 const capture = new NativeCaptureService();
 capture.subscribeHelperLog((chunk) => trace('helper', chunk));
@@ -231,16 +265,18 @@ function createWindow(): void {
   void mainWindow.loadFile(rendererFile('shell.html'));
 }
 
-ipcMain.handle('shell:openSpike', async (_event, workspaceId: string, workspaceName: string) => {
+handleIpc('shell:openSpike', async (_event, workspaceId: string, workspaceName: string) => {
   const user = await signedInUser();
   if (!user) {
     throw new Error('sign_in_required');
   }
   beginNote();
-  try {
-    await capture.cancel();
-  } catch {
-    // Helper may not be running yet.
+  if (stopsInFlight === 0) {
+    try {
+      await capture.cancel();
+    } catch {
+      // Helper may not be running yet.
+    }
   }
   if (mainWindow) {
     void mainWindow.loadFile(rendererFile('index.html'), {
@@ -252,31 +288,33 @@ ipcMain.handle('shell:openSpike', async (_event, workspaceId: string, workspaceN
     });
   }
 });
-ipcMain.handle('shell:openNotepad', async () => {
+handleIpc('shell:openNotepad', async (_event, keepProcessing?: boolean) => {
   beginNote();
-  try {
-    await capture.cancel();
-  } catch {
-    // Helper may not be running yet.
+  if (!keepProcessing && stopsInFlight === 0) {
+    try {
+      await capture.cancel();
+    } catch {
+      // Helper may not be running yet.
+    }
   }
   if (mainWindow) {
     void mainWindow.loadFile(rendererFile('shell.html'));
   }
 });
-ipcMain.handle('shell:openSite', async (_event, page: string) => {
+handleIpc('shell:openSite', async (_event, page: string) => {
   if (page !== 'terms' && page !== 'privacy') {
     return;
   }
   await shell.openExternal(`${websiteUrl()}/${page}`);
 });
-ipcMain.handle('i18n:locale', () => preferredLocale());
-ipcMain.handle('i18n:messages', (_event, locale: 'en' | 'es') => {
+handleIpc('i18n:locale', () => preferredLocale());
+handleIpc('i18n:messages', (_event, locale: 'en' | 'es') => {
   return locale === 'es' ? es : en;
 });
-ipcMain.handle('config:get', () => loadAppConfig());
-ipcMain.handle('auth:login', () => auth.login());
-ipcMain.handle('auth:logout', () => auth.logout());
-ipcMain.handle('auth:deleteAccount', async () => {
+handleIpc('config:get', () => loadAppConfig());
+handleIpc('auth:login', () => auth.login());
+handleIpc('auth:logout', () => auth.logout());
+handleIpc('auth:deleteAccount', async () => {
   const token = await auth.getAccessToken();
   if (!token) {
     throw new Error('sign_in_required');
@@ -295,25 +333,65 @@ ipcMain.handle('auth:deleteAccount', async () => {
   }
   await auth.logout();
 });
-async function signedInUser(): Promise<unknown | null> {
-  const token = await auth.getAccessToken();
-  if (!token) {
-    return null;
-  }
-  const response = await fetch(`${backendUrl()}/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (response.status === 401) {
-    return null;
-  }
-  if (!response.ok) {
-    throw new Error('backend_unavailable');
-  }
-  return response.json();
+type CachedMe = Record<string, unknown> & { stale?: boolean };
+
+function meCachePath(): string {
+  return path.join(app.getPath('userData'), 'me-cache.json');
 }
 
-ipcMain.handle('auth:me', () => signedInUser());
-ipcMain.handle('billing:sync', async () => {
+async function readCachedMe(): Promise<CachedMe | null> {
+  try {
+    const parsed = JSON.parse(await readFile(meCachePath(), 'utf8')) as unknown;
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+    return parsed as CachedMe;
+  } catch {
+    return null;
+  }
+}
+
+async function signedInUser(): Promise<CachedMe | null> {
+  const token = await auth.getAccessToken();
+  if (!token) {
+    await unlink(meCachePath()).catch(() => undefined);
+    return null;
+  }
+  try {
+    const response = await fetch(`${backendUrl()}/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (response.status === 401) {
+      await unlink(meCachePath()).catch(() => undefined);
+      return null;
+    }
+    if (!response.ok) {
+      const cached = await readCachedMe();
+      if (cached) {
+        return { ...cached, stale: true };
+      }
+      throw new Error('backend_unavailable');
+    }
+    const me = (await response.json()) as CachedMe;
+    delete me.stale;
+    await mkdir(path.dirname(meCachePath()), { recursive: true }).catch(() => undefined);
+    await writeFile(meCachePath(), JSON.stringify(me));
+    return me;
+  } catch (error) {
+    if (error instanceof Error && error.message === 'backend_unavailable') {
+      throw error;
+    }
+    const cached = await readCachedMe();
+    if (cached) {
+      return { ...cached, stale: true };
+    }
+    throw new Error('backend_unavailable');
+  }
+}
+
+handleIpc('auth:me', () => signedInUser());
+handleIpc('billing:sync', async () => {
   const token = await auth.getAccessToken();
   if (!token) {
     return;
@@ -325,25 +403,26 @@ ipcMain.handle('billing:sync', async () => {
       'Content-Type': 'application/json',
     },
     body: '{}',
+    signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok && response.status !== 401) {
     throw new Error('billing_sync_failed');
   }
 });
-ipcMain.handle('billing:upgrade', async () => {
+handleIpc('billing:upgrade', async () => {
   await shell.openExternal(`${websiteUrl()}/pricing`);
 });
-ipcMain.handle('capture:preview', async () => {
+handleIpc('capture:preview', async () => {
   const result = await capture.preview();
   rememberSession(result);
   return result;
 });
-ipcMain.handle('capture:start', async () => {
+handleIpc('capture:start', async () => {
   const result = await capture.start();
   rememberSession(result);
   return result;
 });
-ipcMain.handle('permissions:microphone', async () => {
+handleIpc('permissions:microphone', async () => {
   if (process.platform !== 'darwin') {
     return false;
   }
@@ -358,14 +437,14 @@ ipcMain.handle('permissions:microphone', async () => {
   await openMicrophoneSettings();
   return false;
 });
-ipcMain.handle('capture:pause', () => capture.pause());
-ipcMain.handle('capture:resume', () => capture.resume());
-ipcMain.handle('capture:cancel', async () => {
+handleIpc('capture:pause', () => capture.pause());
+handleIpc('capture:resume', () => capture.resume());
+handleIpc('capture:cancel', async () => {
   beginNote();
   resetExport();
   await capture.cancel();
 });
-ipcMain.handle('capture:end', async () => {
+handleIpc('capture:end', async () => {
   resetExport();
   const captured = await capture.stop();
   await unlink(captured.filePath).catch(() => undefined);
@@ -378,25 +457,25 @@ ipcMain.handle('capture:end', async () => {
   const durationSeconds = Number(captured.durationSeconds);
   return { durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : 0 };
 });
-ipcMain.handle('notes:listWorkspaces', () => notesApi.listWorkspaces());
-ipcMain.handle('notes:createWorkspace', (_event, name: string) => notesApi.createWorkspace(name));
-ipcMain.handle('notes:deleteWorkspace', (_event, id: string) => notesApi.deleteWorkspace(id));
-ipcMain.handle('notes:setWorkspaceIcon', (_event, id: string, icon: string) =>
+handleIpc('notes:listWorkspaces', () => notesApi.listWorkspaces());
+handleIpc('notes:createWorkspace', (_event, name: string) => notesApi.createWorkspace(name));
+handleIpc('notes:deleteWorkspace', (_event, id: string) => notesApi.deleteWorkspace(id));
+handleIpc('notes:setWorkspaceIcon', (_event, id: string, icon: string) =>
   notesApi.setWorkspaceIcon(id, icon),
 );
-ipcMain.handle('notes:listNotes', (_event, workspaceId: string) => notesApi.listNotes(workspaceId));
-ipcMain.handle('notes:create', (_event, workspaceId: string, title: string | null) =>
+handleIpc('notes:listNotes', (_event, workspaceId: string) => notesApi.listNotes(workspaceId));
+handleIpc('notes:create', (_event, workspaceId: string, title: string | null) =>
   notesApi.createNote(workspaceId, title),
 );
-ipcMain.handle('notes:rename', (_event, id: string, title: string | null) =>
+handleIpc('notes:rename', (_event, id: string, title: string | null) =>
   notesApi.renameNote(id, title),
 );
-ipcMain.handle('notes:move', (_event, id: string, workspaceId: string) =>
+handleIpc('notes:move', (_event, id: string, workspaceId: string) =>
   notesApi.moveNote(id, workspaceId),
 );
-ipcMain.handle('notes:delete', (_event, id: string) => notesApi.deleteNote(id));
-ipcMain.handle('notes:cancel', (_event, id: string) => notesApi.cancelNote(id));
-ipcMain.handle(
+handleIpc('notes:delete', (_event, id: string) => notesApi.deleteNote(id));
+handleIpc('notes:cancel', (_event, id: string) => notesApi.cancelNote(id));
+handleIpc(
   'notes:stop',
   (
     _event,
@@ -412,11 +491,11 @@ ipcMain.handle(
     }[] | null,
   ) => notesApi.stopNote(id, durationSeconds, transcriptText, language, turns),
 );
-ipcMain.handle('notes:retry', (_event, id: string) => notesApi.retryNote(id));
-ipcMain.handle('notes:share', (_event, id: string, emails: string[]) =>
+handleIpc('notes:retry', (_event, id: string) => notesApi.retryNote(id));
+handleIpc('notes:share', (_event, id: string, emails: string[]) =>
   notesApi.shareNote(id, emails),
 );
-ipcMain.handle(
+handleIpc(
   'ask:send',
   (
     _event,
@@ -425,7 +504,7 @@ ipcMain.handle(
     noteId?: string | null,
   ) => askApi.send(messages, attachments, noteId),
 );
-ipcMain.handle(
+handleIpc(
   'ask:transcribe',
   (_event, dataBase64: string, mime: string, name: string) =>
     askApi.transcribe(dataBase64, mime, name),
@@ -435,6 +514,7 @@ let armedNoteId: string | null = null;
 let nextSliceSeq = 1;
 let audioOffsetSec = 0;
 let exportChain: Promise<void> = Promise.resolve();
+let stopsInFlight = 0;
 let waitingCaptures: CaptureFiles[] = [];
 let pendingBatch: PreparedBatch | null = null;
 
@@ -443,6 +523,10 @@ function stopExportTimer(): void {
     clearInterval(exportTimer);
     exportTimer = null;
   }
+}
+
+function queueRoot(): string {
+  return path.join(app.getPath('userData'), 'capture-queue');
 }
 
 function discardHeldAudio(): void {
@@ -459,6 +543,75 @@ function discardHeldAudio(): void {
   pendingBatch = null;
   for (const file of files) {
     void unlink(file).catch(() => undefined);
+  }
+  void rm(queueRoot(), { recursive: true, force: true }).catch(() => undefined);
+}
+
+async function stageCapture(captured: CaptureFiles): Promise<CaptureFiles> {
+  const dir = path.join(queueRoot(), randomUUID());
+  await mkdir(dir, { recursive: true });
+  const staged: CaptureFiles = {
+    durationSeconds: captured.durationSeconds,
+    filePath: path.join(dir, 'mix.wav'),
+  };
+  await copyFile(captured.filePath, staged.filePath);
+  if (captured.micFilePath) {
+    staged.micFilePath = path.join(dir, 'mic.wav');
+    await copyFile(captured.micFilePath, staged.micFilePath);
+  }
+  if (captured.systemFilePath) {
+    staged.systemFilePath = path.join(dir, 'system.wav');
+    await copyFile(captured.systemFilePath, staged.systemFilePath);
+  }
+  for (const file of captureFiles(captured)) {
+    await unlink(file).catch(() => undefined);
+  }
+  return staged;
+}
+
+async function persistHeld(noteId: string): Promise<void> {
+  if (!hasHeldAudio()) {
+    await rm(queueRoot(), { recursive: true, force: true }).catch(() => undefined);
+    return;
+  }
+  await mkdir(queueRoot(), { recursive: true });
+  const pendingCapture: CaptureFiles | null = pendingBatch
+    ? {
+        durationSeconds: pendingBatch.durationSeconds,
+        filePath: pendingBatch.files.find((file) => file.endsWith('mix.wav')) ?? pendingBatch.files[0] ?? '',
+        micFilePath: pendingBatch.files.find((file) => file.endsWith('mic.wav')),
+        systemFilePath: pendingBatch.files.find((file) => file.endsWith('system.wav')),
+      }
+    : null;
+  const manifest: QueueManifest = {
+    noteId,
+    savedAt: Date.now(),
+    nextSliceSeq: pendingBatch?.pieces[0]?.seq ?? nextSliceSeq,
+    audioOffsetSec,
+    waiting: pendingCapture ? [pendingCapture, ...waitingCaptures] : waitingCaptures,
+  };
+  await writeFile(path.join(queueRoot(), 'manifest.json'), JSON.stringify(manifest));
+}
+
+async function restoreHeld(): Promise<void> {
+  try {
+    const raw = await readFile(path.join(queueRoot(), 'manifest.json'), 'utf8');
+    const manifest = JSON.parse(raw) as QueueManifest;
+    if (!manifest?.noteId || !Array.isArray(manifest.waiting)) {
+      return;
+    }
+    const config = await loadAppConfig().catch(() => null);
+    const windowSeconds = config?.uploadRetrySeconds ?? 0;
+    if (manifestExpired(manifest.savedAt, Date.now(), windowSeconds)) {
+      await rm(queueRoot(), { recursive: true, force: true }).catch(() => undefined);
+      return;
+    }
+    waitingCaptures = manifest.waiting;
+    nextSliceSeq = manifest.nextSliceSeq || 1;
+    audioOffsetSec = manifest.audioOffsetSec || 0;
+    armedNoteId = manifest.noteId;
+  } catch {
+    return;
   }
 }
 
@@ -551,8 +704,14 @@ async function drainUploads(noteId: string): Promise<void> {
 }
 
 async function enqueueCapture(noteId: string, captured: CaptureFiles): Promise<void> {
-  waitingCaptures.push(captured);
-  await drainUploads(noteId);
+  const staged = await stageCapture(captured);
+  waitingCaptures.push(staged);
+  await persistHeld(noteId);
+  try {
+    await drainUploads(noteId);
+  } finally {
+    await persistHeld(noteId);
+  }
 }
 
 async function exportLiveChunk(): Promise<void> {
@@ -572,7 +731,7 @@ async function exportLiveChunk(): Promise<void> {
   await enqueueCapture(noteId, captured);
 }
 
-ipcMain.handle('capture:arm', (_event, noteId: string) => {
+handleIpc('capture:arm', (_event, noteId: string) => {
   resetExport();
   armedNoteId = noteId;
   exportTimer = setInterval(() => {
@@ -581,18 +740,22 @@ ipcMain.handle('capture:arm', (_event, noteId: string) => {
     });
   }, 10_000);
 });
-ipcMain.handle('capture:disarm', () => {
+handleIpc('capture:disarm', () => {
   resetExport();
 });
-ipcMain.handle('capture:getState', () => capture.getState());
-ipcMain.handle('debug:stopAndTranscribe', async (_event, noteId: string, typedNotes: string) => {
+handleIpc('capture:getState', () => capture.getState());
+handleIpc('capture:pending', () => (armedNoteId && hasHeldAudio() ? { noteId: armedNoteId } : null));
+handleIpc('debug:stopAndTranscribe', async (_event, noteId: string, typedNotes: string) => {
+  stopsInFlight += 1;
+  try {
   await exportChain;
   stopExportTimer();
   let tailSeconds = 0;
   try {
     const captured = await capture.stop();
     tailSeconds = Number(captured.durationSeconds) || 0;
-    waitingCaptures.push(captured);
+    waitingCaptures.push(await stageCapture(captured));
+    await persistHeld(noteId);
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     const benign = message === 'empty' || message === 'too_short';
@@ -629,9 +792,12 @@ ipcMain.handle('debug:stopAndTranscribe', async (_event, noteId: string, typedNo
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
   throw new Error('slice_timeout');
+  } finally {
+    stopsInFlight -= 1;
+  }
 });
-ipcMain.handle('debug:hasLastMix', () => Boolean(lastMix && lastMix.length > 0));
-ipcMain.handle('debug:resend', async () => {
+handleIpc('debug:hasLastMix', () => Boolean(lastMix && lastMix.length > 0));
+handleIpc('debug:resend', async () => {
   if (!lastMix || lastMix.length === 0) {
     throw new Error('no_last_mix');
   }
@@ -723,6 +889,7 @@ function installAppMenu(): void {
 }
 
 app.whenReady().then(async () => {
+  await restoreHeld();
   installAppMenu();
   if (process.platform === 'darwin') {
     const dockIcon = nativeImage.createFromPath(path.join(__dirname, '..', 'build', 'dock-icon.png'));
@@ -756,6 +923,11 @@ app.on('before-quit', () => {
   lastSystem = null;
 });
 
+process.on('uncaughtException', (error) => {
+  console.error(JSON.stringify({ event: 'uncaught', message: error.message }));
+  app.exit(1);
+});
 process.on('unhandledRejection', (reason) => {
-  console.error(reason);
+  const message = reason instanceof Error ? reason.message : 'unhandled_rejection';
+  console.error(JSON.stringify({ event: 'unhandled_rejection', message }));
 });

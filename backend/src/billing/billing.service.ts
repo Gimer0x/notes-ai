@@ -97,9 +97,20 @@ export class BillingService {
 
   async recordListen(
     userId: string,
+    noteId: string,
     durationSeconds: number,
     query: DbService['query'] = this.db.query.bind(this.db),
   ): Promise<void> {
+    const ledger = await query<{ note_id: string }>(
+      `INSERT INTO listen_ledger (note_id, user_id, seconds)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (note_id) DO NOTHING
+       RETURNING note_id`,
+      [noteId, userId, Math.max(0, Math.round(durationSeconds))],
+    );
+    if (!ledger.rows[0]) {
+      return;
+    }
     const userResult = await query<UserRow>(
       `SELECT
          id,

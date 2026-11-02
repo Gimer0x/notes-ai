@@ -109,7 +109,7 @@ function requireCallback(body: OAuthCallbackBody): {
   const codeVerifier = body.codeVerifier?.trim() ?? '';
   const redirectUri = body.redirectUri?.trim() ?? '';
   if (!code || !codeVerifier || !redirectUri) {
-    throw new BadRequestException('code, codeVerifier, and redirectUri are required');
+    throw new BadRequestException('invalid_input');
   }
   return { code, codeVerifier, redirectUri };
 }
@@ -121,7 +121,7 @@ function isLoopbackRedirect(redirectUri: string): boolean {
 function requiredEnv(config: ConfigService, key: string): string {
   const value = config.get<string>(key)?.trim() ?? '';
   if (!value) {
-    throw new BadRequestException(`${key} is not set`);
+    throw new ServiceUnavailableException('google_unconfigured');
   }
   return value;
 }

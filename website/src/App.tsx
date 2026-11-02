@@ -1,3 +1,4 @@
+import { Component, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthProvider';
 import { Layout } from './components/Layout';
@@ -10,9 +11,32 @@ import { WelcomePage } from './pages/WelcomePage';
 import { TermsPage } from './pages/TermsPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 
+class AppErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  render(): ReactNode {
+    if (this.state.failed) {
+      const spanish = navigator.language.toLowerCase().startsWith('es');
+      return (
+        <p>
+          {spanish
+            ? 'Algo salió mal. Recarga la página.'
+            : 'Something went wrong. Reload the page.'}
+        </p>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export function App() {
   return (
     <I18nProvider>
+      <AppErrorBoundary>
       <AuthProvider>
         <BrowserRouter>
           <Routes>
@@ -29,6 +53,7 @@ export function App() {
           </Routes>
         </BrowserRouter>
       </AuthProvider>
+      </AppErrorBoundary>
     </I18nProvider>
   );
 }

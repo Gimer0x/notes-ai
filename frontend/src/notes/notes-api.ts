@@ -27,6 +27,7 @@ export type NoteRecord = {
   language: 'en' | 'es' | null;
   errorCode: 'upload' | 'stt' | 'gpt' | null;
   errorMessage: string | null;
+  transcriptComplete?: boolean;
   startedAt: string | null;
   endedAt: string | null;
   durationSeconds: number | null;
@@ -141,14 +142,20 @@ export class NotesApi {
     if (!access) {
       throw new Error('sign_in_required');
     }
-    const response = await fetch(`${this.url().replace(/\/$/, '')}${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${access}`,
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.url().replace(/\/$/, '')}${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${access}`,
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(20_000),
+      });
+    } catch {
+      throw new Error('request_timeout');
+    }
     const text = await response.text();
     const payload = parsePayload(text);
     if (!response.ok) {
@@ -168,14 +175,20 @@ export class NotesApi {
     if (!access) {
       throw new Error('sign_in_required');
     }
-    const response = await fetch(`${this.url().replace(/\/$/, '')}${path}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${access}`,
-        ...form.getHeaders(),
-      },
-      body: new Uint8Array(form.getBuffer()),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.url().replace(/\/$/, '')}${path}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${access}`,
+          ...form.getHeaders(),
+        },
+        body: new Uint8Array(form.getBuffer()),
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch {
+      throw new Error('request_timeout');
+    }
     const text = await response.text();
     const payload = parsePayload(text);
     if (!response.ok) {

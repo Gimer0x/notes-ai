@@ -17,6 +17,7 @@ function failedNote(errorCode: 'stt' | 'gpt'): NoteRow {
     language: 'en',
     error_code: errorCode,
     error_message: 'slice_failed',
+    transcript_complete: errorCode === 'gpt',
     started_at: new Date('2026-11-02T18:00:00Z'),
     ended_at: new Date('2026-11-02T18:05:00Z'),
     duration_seconds: 300,
