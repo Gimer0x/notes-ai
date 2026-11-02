@@ -10,5 +10,6 @@ import { SlicesService } from './slices.service';
   imports: [AuthModule, BillingModule, SummaryModule, TranscribeModule],
   controllers: [SlicesController],
   providers: [SlicesService],
+  exports: [SlicesService],
 })
 export class SlicesModule {}

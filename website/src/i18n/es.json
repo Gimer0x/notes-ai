@@ -7,6 +7,7 @@
   "signOut": "Salir",
   "signedInAs": "Sesión iniciada como {email} · {plan}",
   "authError": "No se pudo iniciar sesión con Google. Inténtalo de nuevo.",
+  "backendUnavailable": "Pith no puede llegar al servidor ahora. Inténtalo de nuevo en un momento.",
   "authWorking": "Iniciando sesión…",
   "heroBadge": "Primero macOS",
   "heroTitle": "El bloc que se queda con lo esencial.",

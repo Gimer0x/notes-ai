@@ -4,7 +4,7 @@ import { useI18n } from '../i18n/I18nProvider';
 
 export function WelcomePage() {
   const { t } = useI18n();
-  const { signedIn, loading, signIn } = useAuth();
+  const { signedIn, loading, unavailable, signIn } = useAuth();
 
   if (!loading && signedIn) {
     return <Navigate to="/account" replace />;
@@ -16,6 +16,7 @@ export function WelcomePage() {
         <img className="welcome-mark" src="/pith-mark.png" alt={t.appName} />
         <h1>{t.welcomeTitle}</h1>
         <p className="welcome-lead">{t.welcomeLead}</p>
+        {unavailable ? <p className="welcome-lead">{t.backendUnavailable}</p> : null}
         <button type="button" className="welcome-google" onClick={() => void signIn()} disabled={loading}>
           <GoogleMark />
           {loading ? t.authWorking : t.welcomeGoogle}

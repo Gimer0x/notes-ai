@@ -23,6 +23,9 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       );
     }
     this.pool = new Pool({ connectionString: url });
+    this.pool.on('error', (error: Error) => {
+      this.logger.error(`postgres pool: ${error.message}`);
+    });
     await this.query('SELECT 1');
     for (const statement of SCHEMA_STATEMENTS) {
       await this.query(statement);
@@ -65,7 +68,12 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       await client.query('COMMIT');
       return result;
     } catch (error) {
-      await client.query('ROLLBACK');
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        const message = rollbackError instanceof Error ? rollbackError.message : 'rollback_failed';
+        this.logger.error(`postgres rollback failed: ${message}`);
+      }
       throw error;
     } finally {
       client.release();

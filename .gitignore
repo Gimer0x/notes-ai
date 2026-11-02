@@ -13,5 +13,6 @@ coverage/
 frontend/release/
 backend/dist/
 frontend/dist/
+frontend/dist-test/
 frontend/native/CaptureHelper/.build/
 frontend/native/CaptureHelper.app/

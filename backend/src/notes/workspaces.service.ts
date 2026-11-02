@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { assertUuid } from '../common/safe-error';
 import { DbService } from '../db/db.service';
 import {
   WORKSPACE_ICONS,
@@ -98,6 +99,8 @@ export class WorkspacesService {
   }
 
   async assertOwned(userId: string, workspaceId: string): Promise<void> {
+    assertUuid(userId);
+    assertUuid(workspaceId, 'invalid_id');
     const result = await this.db.query<{ id: string }>(
       `SELECT id FROM workspaces WHERE id = $1 AND user_id = $2`,
       [workspaceId, userId],
@@ -126,6 +129,9 @@ export class WorkspacesService {
 }
 
 function cleanIcon(icon: string): WorkspaceIcon {
+  if (typeof icon !== 'string') {
+    throw new BadRequestException('workspace_icon');
+  }
   const chosen = icon.trim() as WorkspaceIcon;
   if (!WORKSPACE_ICONS.includes(chosen)) {
     throw new BadRequestException('workspace_icon');
@@ -134,6 +140,9 @@ function cleanIcon(icon: string): WorkspaceIcon {
 }
 
 function cleanName(name: string): string {
+  if (typeof name !== 'string') {
+    throw new BadRequestException('workspace_name');
+  }
   const trimmed = name.trim();
   if (!trimmed || trimmed.length > NAME_MAX) {
     throw new BadRequestException('workspace_name');

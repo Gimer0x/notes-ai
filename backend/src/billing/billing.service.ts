@@ -95,8 +95,12 @@ export class BillingService {
     return { allowed: true };
   }
 
-  async recordListen(userId: string, durationSeconds: number): Promise<void> {
-    const userResult = await this.db.query<UserRow>(
+  async recordListen(
+    userId: string,
+    durationSeconds: number,
+    query: DbService['query'] = this.db.query.bind(this.db),
+  ): Promise<void> {
+    const userResult = await query<UserRow>(
       `SELECT
          id,
          google_subject,
@@ -118,9 +122,9 @@ export class BillingService {
       throw new Error('user not found');
     }
     const window = currentWindow(user);
-    await this.ensureWindow(userId, window.start, window.end);
+    await this.ensureWindow(userId, window.start, window.end, query);
     const seconds = Math.max(0, Math.round(durationSeconds));
-    await this.db.query(
+    await query(
       `UPDATE usage_windows
        SET listening_seconds_used = listening_seconds_used + $3,
            notes_counted = notes_counted + 1
@@ -155,8 +159,9 @@ export class BillingService {
     userId: string,
     periodStart: Date,
     periodEnd: Date,
+    query: DbService['query'] = this.db.query.bind(this.db),
   ): Promise<WindowRow> {
-    const existing = await this.db.query<WindowRow>(
+    const existing = await query<WindowRow>(
       `SELECT listening_seconds_used, notes_counted
        FROM usage_windows
        WHERE user_id = $1 AND period_start = $2`,
@@ -165,7 +170,7 @@ export class BillingService {
     if (existing.rows[0]) {
       return existing.rows[0];
     }
-    const inserted = await this.db.query<WindowRow>(
+    const inserted = await query<WindowRow>(
       `INSERT INTO usage_windows (user_id, period_start, period_end)
        VALUES ($1, $2, $3)
        ON CONFLICT (user_id, period_start) DO UPDATE SET

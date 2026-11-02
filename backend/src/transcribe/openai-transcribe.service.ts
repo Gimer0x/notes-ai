@@ -114,9 +114,7 @@ export class OpenAiTranscribeService implements TranscribeService {
 
         const text = stripSttPromptEcho(result.text ?? '');
         parts.push(text);
-        console.log(
-          `stt done file=${filename} chars=${text.length} preview=${text.replace(/\s+/g, ' ').slice(0, 80)}`,
-        );
+        console.log(`stt done file=${filename} chars=${text.length}`);
         language = useVerbose
           ? this.fromApiLanguage(
               'language' in result ? String(result.language) : undefined,
@@ -129,7 +127,7 @@ export class OpenAiTranscribeService implements TranscribeService {
       }
     } catch (error) {
       if (error instanceof APIError) {
-        throw new BadGatewayException(error.message);
+        throw new BadGatewayException('transcription_unavailable');
       }
       throw error;
     }

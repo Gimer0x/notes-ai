@@ -14,6 +14,7 @@ type AuthValue = {
   signedIn: boolean;
   me: MeResponse | null;
   loading: boolean;
+  unavailable: boolean;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -24,14 +25,25 @@ const AuthContext = createContext<AuthValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
 
   const refresh = useCallback(async () => {
-    const response = await apiFetch('/me');
-    if (!response.ok) {
-      setMe(null);
-      return;
+    try {
+      const response = await apiFetch('/me');
+      if (response.status === 401) {
+        setMe(null);
+        setUnavailable(false);
+        return;
+      }
+      if (!response.ok) {
+        setUnavailable(true);
+        return;
+      }
+      setUnavailable(false);
+      setMe((await response.json()) as MeResponse);
+    } catch {
+      setUnavailable(true);
     }
-    setMe((await response.json()) as MeResponse);
   }, []);
 
   useEffect(() => {
@@ -39,12 +51,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const signIn = useCallback(async () => {
-    await startGoogleLogin();
+    try {
+      await startGoogleLogin();
+    } catch {
+      setUnavailable(true);
+    }
   }, []);
 
   const signOut = useCallback(async () => {
-    await apiFetch('/auth/logout', { method: 'POST' });
-    setMe(null);
+    try {
+      const response = await apiFetch('/auth/logout', { method: 'POST' });
+      if (!response.ok) {
+        setUnavailable(true);
+        return;
+      }
+      setMe(null);
+      setUnavailable(false);
+    } catch {
+      setUnavailable(true);
+    }
   }, []);
 
   const value = useMemo(
@@ -52,11 +77,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signedIn: Boolean(me),
       me,
       loading,
+      unavailable,
       signIn,
       signOut,
       refresh,
     }),
-    [me, loading, signIn, signOut, refresh],
+    [me, loading, unavailable, signIn, signOut, refresh],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

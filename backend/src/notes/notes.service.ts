@@ -6,7 +6,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { BillingService } from '../billing/billing.service';
+import { assertUuid, safeErrorMessage } from '../common/safe-error';
 import { DbService } from '../db/db.service';
+import { SlicesService } from '../slices/slices.service';
 import { SummaryService, type MeetingLanguage } from '../summary/summary.service';
 import { cleanSpeech } from './clean-speech';
 import { toNote, type NoteResponse, type NoteRow, type TranscriptTurn } from './note.types';
@@ -23,6 +25,7 @@ export class NotesService {
     private readonly workspaces: WorkspacesService,
     private readonly billing: BillingService,
     private readonly summary: SummaryService,
+    private readonly slices: SlicesService,
   ) {}
 
   async list(userId: string, workspaceId: string): Promise<NoteResponse[]> {
@@ -124,30 +127,35 @@ export class NotesService {
     const languageCode = language === 'en' || language === 'es' ? language : null;
     const transcript = cleanTranscript(transcriptText);
     const savedTurns = cleanTurns(turns);
-    await this.billing.recordListen(userId, durationSeconds);
-    const stored = await this.db.query<NoteRow>(
-      `UPDATE notes
-       SET status = 'processing',
-           ended_at = now(),
-           duration_seconds = $3,
-           transcript_text = $4,
-           transcript_turns = $5,
-           language = $6,
-           error_code = NULL,
-           error_message = NULL,
-           updated_at = now()
-       WHERE id = $1 AND user_id = $2
-       RETURNING ${NOTE_COLUMNS}`,
-      [
-        noteId,
-        userId,
-        Math.round(durationSeconds),
-        transcript,
-        savedTurns ? JSON.stringify(savedTurns) : null,
-        languageCode,
-      ],
-    );
-    requiredRow(stored.rows[0]);
+    await this.db.transaction(async (query) => {
+      const updated = await query<NoteRow>(
+        `UPDATE notes
+         SET status = 'processing',
+             ended_at = now(),
+             duration_seconds = $3,
+             transcript_text = $4,
+             transcript_turns = $5,
+             language = $6,
+             error_code = NULL,
+             error_message = NULL,
+             updated_at = now()
+         WHERE id = $1 AND user_id = $2 AND status IN ('listening', 'paused')
+         RETURNING ${NOTE_COLUMNS}`,
+        [
+          noteId,
+          userId,
+          Math.round(durationSeconds),
+          transcript,
+          savedTurns ? JSON.stringify(savedTurns) : null,
+          languageCode,
+        ],
+      );
+      const row = updated.rows[0];
+      if (!row) {
+        throw new ConflictException('not_listening');
+      }
+      await this.billing.recordListen(userId, durationSeconds, query);
+    });
     if (!transcript) {
       return this.markReady(userId, noteId, null);
     }
@@ -158,6 +166,12 @@ export class NotesService {
     const note = await this.require(userId, noteId);
     if (note.status !== 'failed') {
       throw new ConflictException('not_failed');
+    }
+    if (note.error_code === 'stt') {
+      const resumed = await this.slices.requeueFailedAudio(userId, noteId);
+      if (resumed) {
+        return this.get(userId, noteId);
+      }
     }
     const transcript = cleanTranscript(note.transcript_text);
     if (!transcript) {
@@ -177,7 +191,6 @@ export class NotesService {
       const summary = await this.summary.summarize(transcript, language);
       return this.markReady(userId, noteId, summary.bullets.join('\n'));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'summary_failed';
       const result = await this.db.query<NoteRow>(
         `UPDATE notes
          SET status = 'failed',
@@ -186,7 +199,7 @@ export class NotesService {
              updated_at = now()
          WHERE id = $1 AND user_id = $2
          RETURNING ${NOTE_COLUMNS}`,
-        [noteId, userId, message.slice(0, 500)],
+        [noteId, userId, safeErrorMessage(error, 'summary_failed')],
       );
       return toNote(requiredRow(result.rows[0]));
     }
@@ -212,6 +225,8 @@ export class NotesService {
   }
 
   private async require(userId: string, noteId: string): Promise<NoteRow> {
+    assertUuid(userId);
+    assertUuid(noteId);
     const result = await this.db.query<NoteRow>(
       `SELECT ${NOTE_COLUMNS}
        FROM notes

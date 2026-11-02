@@ -57,7 +57,7 @@ The last section is always "${closing}" or "${steps}". Use "${steps}" when the m
         throw error;
       }
       if (error instanceof APIError) {
-        throw new BadGatewayException(error.message);
+        throw new BadGatewayException('summary_unavailable');
       }
       throw error;
     }

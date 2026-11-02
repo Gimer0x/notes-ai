@@ -35,7 +35,7 @@ export class MailService {
       auth: { user, pass },
     });
     try {
-      await transporter.sendMail({
+      const info = await transporter.sendMail({
         from,
         to: input.to.join(', '),
         replyTo: input.replyTo,
@@ -43,9 +43,15 @@ export class MailService {
         text: input.text,
         html: input.html,
       });
+      const rejected = Array.isArray(info.rejected) ? info.rejected : [];
+      if (rejected.length > 0) {
+        throw new BadGatewayException('mail_partial');
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'mail_send_failed';
-      throw new BadGatewayException(message);
+      if (error instanceof BadGatewayException) {
+        throw error;
+      }
+      throw new BadGatewayException('mail_send_failed');
     }
   }
 }

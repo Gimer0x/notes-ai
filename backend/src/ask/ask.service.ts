@@ -159,7 +159,13 @@ function cleanTurns(turns: AskTurn[]): AskTurn[] {
 }
 
 function cleanFiles(files: AskFile[] | undefined): AskFile[] {
-  if (!files || files.length === 0) {
+  if (files == null) {
+    return [];
+  }
+  if (!Array.isArray(files)) {
+    throw new BadRequestException('ask_files');
+  }
+  if (files.length === 0) {
     return [];
   }
   if (files.length > MAX_FILES) {

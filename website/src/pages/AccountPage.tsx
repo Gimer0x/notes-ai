@@ -18,12 +18,16 @@ export function AccountPage() {
     }
     let stopped = false;
     async function pull(): Promise<void> {
-      await apiFetch('/billing/sync', {
-        method: 'POST',
-        body: JSON.stringify(sessionId ? { sessionId } : {}),
-      }).catch(() => undefined);
-      if (!stopped) {
-        await refresh();
+      try {
+        const response = await apiFetch('/billing/sync', {
+          method: 'POST',
+          body: JSON.stringify(sessionId ? { sessionId } : {}),
+        });
+        if (!stopped && response.ok) {
+          await refresh();
+        }
+      } catch {
+        // Keep the account already on screen.
       }
     }
     void pull();

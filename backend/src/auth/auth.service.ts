@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -131,7 +132,10 @@ async function exchangeOr401(
   try {
     return await exchangeGoogleCode(input);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'google_oauth_failed';
-    throw new UnauthorizedException(message);
+    const message = error instanceof Error ? error.message : '';
+    if (message.includes('invalid_grant') || message === 'google_token_failed' || message === 'google_profile_failed') {
+      throw new UnauthorizedException('auth_denied');
+    }
+    throw new ServiceUnavailableException('google_unavailable');
   }
 }

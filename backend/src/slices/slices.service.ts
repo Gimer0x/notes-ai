@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { readFile, unlink, mkdir, writeFile } from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -10,6 +11,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+import { assertUuid, safeErrorMessage } from '../common/safe-error';
 import { BillingService } from '../billing/billing.service';
 import { DbService } from '../db/db.service';
 import { cleanSpeech } from '../notes/clean-speech';
@@ -82,7 +84,9 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     this.timer = setInterval(() => {
-      void this.tick();
+      void this.tick().catch((error: unknown) => {
+        this.logger.warn(error instanceof Error ? error.message : 'slice_tick_failed');
+      });
     }, 400);
     this.timer.unref?.();
   }
@@ -103,58 +107,109 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
     endSec: number;
     wav: Buffer;
   }): Promise<{ sliceId: string }> {
+    assertUuid(input.userId);
+    assertUuid(input.noteId);
     if (!Number.isInteger(input.seq) || input.seq < 1) {
       throw new BadRequestException('seq');
+    }
+    if (
+      !Number.isFinite(input.startSec) ||
+      !Number.isFinite(input.endSec) ||
+      input.endSec < input.startSec
+    ) {
+      throw new BadRequestException('slice_range');
     }
     const note = await this.ownedNote(input.userId, input.noteId);
     if (note.status !== 'listening' && note.status !== 'paused' && note.status !== 'processing') {
       throw new ConflictException('not_listening');
     }
-    const dir = await this.sliceDir();
-    const wavPath = path.join(dir, `${input.noteId}-${input.seq}.wav`);
-    await writeFile(wavPath, input.wav);
-    const saved = await this.db.query<{ id: string }>(
-      `INSERT INTO note_slices (
-         note_id, user_id, seq, status, source, start_sec, end_sec, wav_path
-       ) VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7)
-       ON CONFLICT (note_id, seq) DO UPDATE
-         SET status = 'queued',
-             source = EXCLUDED.source,
-             start_sec = EXCLUDED.start_sec,
-             end_sec = EXCLUDED.end_sec,
-             wav_path = EXCLUDED.wav_path,
-             transcript = NULL,
-             language = NULL,
-             attempts = 0,
-             locked_at = NULL,
-             finished_at = NULL
-         WHERE note_slices.status IN ('queued', 'failed')
-       RETURNING id`,
-      [
-        input.noteId,
-        input.userId,
-        input.seq,
-        input.source,
-        input.startSec,
-        input.endSec,
-        wavPath,
-      ],
+    const prior = await this.db.query<{ id: string; status: string; wav_path: string | null }>(
+      `SELECT id, status, wav_path FROM note_slices WHERE note_id = $1 AND seq = $2`,
+      [input.noteId, input.seq],
     );
-    const row = saved.rows[0];
-    if (!row) {
-      const existing = await this.db.query<{ id: string }>(
-        `SELECT id FROM note_slices WHERE note_id = $1 AND seq = $2`,
-        [input.noteId, input.seq],
-      );
-      await unlink(wavPath).catch(() => undefined);
-      const id = existing.rows[0]?.id;
-      if (!id) {
-        throw new ConflictException('slice_closed');
-      }
-      return { sliceId: id };
+    const existing = prior.rows[0];
+    if (existing && (existing.status === 'running' || existing.status === 'done')) {
+      return { sliceId: existing.id };
     }
-    void this.tick();
-    return { sliceId: row.id };
+    const dir = await this.sliceDir();
+    const wavPath = path.join(dir, `${input.noteId}-${input.seq}-${randomUUID()}.wav`);
+    await writeFile(wavPath, input.wav);
+    try {
+      const saved = await this.db.query<{ id: string }>(
+        `INSERT INTO note_slices (
+           note_id, user_id, seq, status, source, start_sec, end_sec, wav_path
+         ) VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7)
+         ON CONFLICT (note_id, seq) DO UPDATE
+           SET status = 'queued',
+               source = EXCLUDED.source,
+               start_sec = EXCLUDED.start_sec,
+               end_sec = EXCLUDED.end_sec,
+               wav_path = EXCLUDED.wav_path,
+               transcript = NULL,
+               language = NULL,
+               attempts = 0,
+               locked_at = NULL,
+               finished_at = NULL
+           WHERE note_slices.status IN ('queued', 'failed')
+         RETURNING id`,
+        [
+          input.noteId,
+          input.userId,
+          input.seq,
+          input.source,
+          input.startSec,
+          input.endSec,
+          wavPath,
+        ],
+      );
+      const row = saved.rows[0];
+      if (!row) {
+        await unlink(wavPath).catch(() => undefined);
+        const id = existing?.id;
+        if (!id) {
+          throw new ConflictException('slice_closed');
+        }
+        return { sliceId: id };
+      }
+      if (existing?.wav_path && existing.wav_path !== wavPath) {
+        await unlink(existing.wav_path).catch(() => undefined);
+      }
+      void this.tick().catch((error: unknown) => {
+        this.logger.warn(error instanceof Error ? error.message : 'slice_tick_failed');
+      });
+      return { sliceId: row.id };
+    } catch (error) {
+      await unlink(wavPath).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /** Re-queue failed slices that still have audio. Returns false when nothing can be retried. */
+  async requeueFailedAudio(userId: string, noteId: string): Promise<boolean> {
+    const updated = await this.db.query<{ id: string }>(
+      `UPDATE note_slices
+       SET status = 'queued', attempts = 0, locked_at = NULL, finished_at = NULL
+       WHERE note_id = $1 AND user_id = $2 AND status = 'failed' AND wav_path IS NOT NULL
+       RETURNING id`,
+      [noteId, userId],
+    );
+    if (updated.rows.length === 0) {
+      return false;
+    }
+    await this.db.query(
+      `UPDATE notes
+       SET status = 'processing',
+           summary_running = false,
+           error_code = NULL,
+           error_message = NULL,
+           updated_at = now()
+       WHERE id = $1 AND user_id = $2 AND status = 'failed'`,
+      [noteId, userId],
+    );
+    void this.tick().catch((error: unknown) => {
+      this.logger.warn(error instanceof Error ? error.message : 'slice_tick_failed');
+    });
+    return true;
   }
 
   async progress(userId: string, noteId: string): Promise<SliceProgress> {
@@ -195,27 +250,29 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
     if (!Number.isFinite(input.durationSeconds) || input.durationSeconds < 0) {
       throw new BadRequestException('duration_seconds');
     }
-    const updated = await this.db.query(
-      `UPDATE notes
-       SET status = 'processing',
-           final_seq = $3,
-           typed_notes = $4,
-           ended_at = now(),
-           duration_seconds = $5,
-           updated_at = now()
-       WHERE id = $1 AND user_id = $2 AND status IN ('listening', 'paused')
-       RETURNING id`,
-      [
-        input.noteId,
-        input.userId,
-        input.finalSeq,
-        input.typedNotes.trim() || null,
-        Math.round(input.durationSeconds),
-      ],
-    );
-    if (updated.rows[0]) {
-      await this.billing.recordListen(input.userId, input.durationSeconds);
-    }
+    await this.db.transaction(async (query) => {
+      const updated = await query(
+        `UPDATE notes
+         SET status = 'processing',
+             final_seq = $3,
+             typed_notes = $4,
+             ended_at = now(),
+             duration_seconds = $5,
+             updated_at = now()
+         WHERE id = $1 AND user_id = $2 AND status IN ('listening', 'paused')
+         RETURNING id`,
+        [
+          input.noteId,
+          input.userId,
+          input.finalSeq,
+          input.typedNotes.trim() || null,
+          Math.round(input.durationSeconds),
+        ],
+      );
+      if (updated.rows[0]) {
+        await this.billing.recordListen(input.userId, input.durationSeconds, query);
+      }
+    });
     await this.maybeSummarize(input.noteId);
   }
 
@@ -227,6 +284,7 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.recoverStale();
       await this.purgeFailedAudio();
+      await this.resumeSummaries();
       while (this.inFlight < MAX_IN_FLIGHT) {
         const job = await this.claim();
         if (!job) {
@@ -239,9 +297,13 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
           })
           .finally(() => {
             this.inFlight -= 1;
-            void this.maybeSummarize(job.note_id);
+            void this.maybeSummarize(job.note_id).catch((error: unknown) => {
+              this.logger.warn(error instanceof Error ? error.message : 'summary_failed');
+            });
           });
       }
+    } catch (error) {
+      this.logger.warn(error instanceof Error ? error.message : 'slice_tick_failed');
     } finally {
       this.ticking = false;
     }
@@ -287,7 +349,8 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
       );
       await unlink(job.wav_path).catch(() => undefined);
     } catch (error) {
-      const failedForGood = job.attempts >= MAX_ATTEMPTS;
+      const reason = error instanceof Error ? error.message : '';
+      const failedForGood = job.attempts >= MAX_ATTEMPTS || reason === 'missing_wav';
       await this.db.query(
         `UPDATE note_slices
          SET status = $2,
@@ -340,7 +403,7 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
     }
     const failed = slices.rows.filter((slice) => slice.status === 'failed');
     if (failed.length > 0) {
-      await this.finishFailed(noteId, slices.rows);
+      await this.finishFailed(noteId, slices.rows, row.typed_notes);
       return;
     }
     if (slices.rows.length !== row.final_seq) {
@@ -398,7 +461,6 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
         [noteId, summary.bullets.join('\n')],
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'summary_failed';
       await this.db.query(
         `UPDATE notes
          SET status = 'failed',
@@ -407,7 +469,7 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
              summary_running = false,
              updated_at = now()
          WHERE id = $1`,
-        [noteId, message.slice(0, 500)],
+        [noteId, safeErrorMessage(error, 'summary_failed')],
       );
     }
   }
@@ -415,6 +477,7 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
   private async finishFailed(
     noteId: string,
     slices: { transcript: string | null; source: SliceSource; start_sec: number; end_sec: number; status: string }[],
+    typedNotes: string | null,
   ): Promise<void> {
     const turns = slices
       .filter((slice) => slice.status === 'done' && (slice.transcript ?? '').trim())
@@ -424,6 +487,8 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
         endSec: slice.end_sec,
         text: (slice.transcript ?? '').trim(),
       }));
+    const spoken = turns.map((turn) => turn.text).join('\n\n');
+    const transcript = [typedNotes?.trim() ?? '', spoken].filter((part) => part.length > 0).join('\n\n');
     await this.db.query(
       `UPDATE notes
        SET status = 'failed',
@@ -434,11 +499,7 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
            summary_running = false,
            updated_at = now()
        WHERE id = $1 AND status = 'processing'`,
-      [
-        noteId,
-        turns.map((turn) => turn.text).join('\n\n') || null,
-        turns.length > 0 ? JSON.stringify(turns) : null,
-      ],
+      [noteId, transcript || null, turns.length > 0 ? JSON.stringify(turns) : null],
     );
   }
 
@@ -448,6 +509,25 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
        SET status = 'queued', locked_at = NULL
        WHERE status = 'running' AND locked_at < now() - interval '15 minutes'`,
     );
+    await this.db.query(
+      `UPDATE notes
+       SET summary_running = false, updated_at = now()
+       WHERE summary_running = true
+         AND status = 'processing'
+         AND updated_at < now() - interval '15 minutes'`,
+    );
+  }
+
+  private async resumeSummaries(): Promise<void> {
+    const notes = await this.db.query<{ id: string }>(
+      `SELECT id FROM notes
+       WHERE status = 'processing' AND summary_running = false
+       ORDER BY updated_at
+       LIMIT 5`,
+    );
+    for (const note of notes.rows) {
+      await this.maybeSummarize(note.id);
+    }
   }
 
   private async purgeFailedAudio(): Promise<void> {

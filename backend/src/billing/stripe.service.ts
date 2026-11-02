@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -9,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
+import { cancellationFailureCode } from '../common/safe-error';
 import { DbService } from '../db/db.service';
 import { UsersService } from '../users/users.service';
 
@@ -272,8 +274,11 @@ export class StripeService implements OnModuleInit {
     try {
       await this.stripe.subscriptions.cancel(subscriptionId);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'stripe_cancel_failed';
-      this.logger.warn(`subscription cancel skipped: ${message}`);
+      if (cancellationFailureCode(error) === 'gone') {
+        return;
+      }
+      this.logger.warn('subscription cancel failed');
+      throw new BadGatewayException('stripe_cancel_failed');
     }
   }
 }

@@ -7,6 +7,7 @@
   "signOut": "Sign out",
   "signedInAs": "Signed in as {email} · {plan}",
   "authError": "Google sign-in did not finish. Try again.",
+  "backendUnavailable": "Pith can't reach the server right now. Try again in a moment.",
   "authWorking": "Signing in…",
   "heroBadge": "macOS first",
   "heroTitle": "The notepad that keeps the point.",
