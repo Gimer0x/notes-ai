@@ -4,6 +4,15 @@ import * as path from 'path';
 import { AuthService } from './auth/auth.service';
 import type { CaptureDevice, CaptureLevels } from './capture/capture.service';
 import { segmentTracks, splitLongSegments } from './capture/segment-tracks';
+import {
+  batchDone,
+  captureFiles,
+  currentPiece,
+  markPieceUploaded,
+  prepareBatch,
+  type CaptureFiles,
+  type PreparedBatch,
+} from './capture/upload-queue';
 import { requestScreenCaptureAccess } from './capture/helper-client';
 import { NativeCaptureService } from './capture/native-capture.service';
 import { backendUrl, captureSpikeKey, loadFrontendEnv, websiteUrl } from './env';
@@ -294,8 +303,11 @@ async function signedInUser(): Promise<unknown | null> {
   const response = await fetch(`${backendUrl()}/me`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!response.ok) {
+  if (response.status === 401) {
     return null;
+  }
+  if (!response.ok) {
+    throw new Error('backend_unavailable');
   }
   return response.json();
 }
@@ -306,7 +318,7 @@ ipcMain.handle('billing:sync', async () => {
   if (!token) {
     return;
   }
-  await fetch(`${backendUrl()}/billing/sync`, {
+  const response = await fetch(`${backendUrl()}/billing/sync`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -314,6 +326,9 @@ ipcMain.handle('billing:sync', async () => {
     },
     body: '{}',
   });
+  if (!response.ok && response.status !== 401) {
+    throw new Error('billing_sync_failed');
+  }
 });
 ipcMain.handle('billing:upgrade', async () => {
   await shell.openExternal(`${websiteUrl()}/pricing`);
@@ -351,6 +366,7 @@ ipcMain.handle('capture:cancel', async () => {
   await capture.cancel();
 });
 ipcMain.handle('capture:end', async () => {
+  resetExport();
   const captured = await capture.stop();
   await unlink(captured.filePath).catch(() => undefined);
   if (captured.micFilePath) {
@@ -419,6 +435,8 @@ let armedNoteId: string | null = null;
 let nextSliceSeq = 1;
 let audioOffsetSec = 0;
 let exportChain: Promise<void> = Promise.resolve();
+let waitingCaptures: CaptureFiles[] = [];
+let pendingBatch: PreparedBatch | null = null;
 
 function stopExportTimer(): void {
   if (exportTimer) {
@@ -427,27 +445,39 @@ function stopExportTimer(): void {
   }
 }
 
+function discardHeldAudio(): void {
+  const files = new Set<string>();
+  for (const captured of waitingCaptures) {
+    for (const file of captureFiles(captured)) {
+      files.add(file);
+    }
+  }
+  for (const file of pendingBatch?.files ?? []) {
+    files.add(file);
+  }
+  waitingCaptures = [];
+  pendingBatch = null;
+  for (const file of files) {
+    void unlink(file).catch(() => undefined);
+  }
+}
+
 function resetExport(): void {
   stopExportTimer();
   armedNoteId = null;
   nextSliceSeq = 1;
   audioOffsetSec = 0;
+  discardHeldAudio();
 }
 
-async function uploadCaptured(
-  noteId: string,
-  captured: { filePath: string; durationSeconds: number; micFilePath?: string; systemFilePath?: string },
-): Promise<void> {
+function hasHeldAudio(): boolean {
+  return waitingCaptures.length > 0 || pendingBatch !== null;
+}
+
+async function materialize(captured: CaptureFiles): Promise<PreparedBatch | null> {
   const mix = await readFile(captured.filePath);
   const mic = captured.micFilePath ? await readFile(captured.micFilePath) : null;
   const system = captured.systemFilePath ? await readFile(captured.systemFilePath) : null;
-  await unlink(captured.filePath).catch(() => undefined);
-  if (captured.micFilePath) {
-    await unlink(captured.micFilePath).catch(() => undefined);
-  }
-  if (captured.systemFilePath) {
-    await unlink(captured.systemFilePath).catch(() => undefined);
-  }
   const config = await loadAppConfig();
   const chunkSeconds = config.wavChunkSeconds > 0 ? config.wavChunkSeconds : 600;
   const durationSeconds = Number(captured.durationSeconds) || 0;
@@ -468,25 +498,61 @@ async function uploadCaptured(
             },
           ]
         : [];
+  const files = captureFiles(captured);
   if (segmented.length === 0 && toUpload.length > 0) {
     logFrontend(`slices fallback mix sec=${durationSeconds.toFixed(1)}`);
   }
   const pieces = splitLongSegments(toUpload, chunkSeconds);
-  const offset = audioOffsetSec;
-  audioOffsetSec += durationSeconds;
-  for (const piece of pieces) {
-    const seq = nextSliceSeq;
-    nextSliceSeq += 1;
-    await notesApi.uploadSlice(
-      noteId,
-      seq,
-      piece.source,
-      offset + piece.startSec,
-      offset + piece.endSec,
-      piece.wav,
-    );
+  if (pieces.length === 0) {
+    for (const file of files) {
+      await unlink(file).catch(() => undefined);
+    }
+    return null;
   }
-  logFrontend(`slices uploaded count=${pieces.length} next=${nextSliceSeq}`);
+  return prepareBatch(nextSliceSeq, audioOffsetSec, durationSeconds, files, pieces);
+}
+
+async function drainUploads(noteId: string): Promise<void> {
+  while (waitingCaptures.length > 0 || pendingBatch) {
+    if (!pendingBatch) {
+      const next = waitingCaptures[0];
+      if (!next) {
+        return;
+      }
+      const prepared = await materialize(next);
+      waitingCaptures.shift();
+      if (!prepared) {
+        continue;
+      }
+      pendingBatch = prepared;
+    }
+    while (!batchDone(pendingBatch)) {
+      const piece = currentPiece(pendingBatch);
+      if (!piece) {
+        break;
+      }
+      await notesApi.uploadSlice(
+        noteId,
+        piece.seq,
+        piece.source,
+        piece.startSec,
+        piece.endSec,
+        piece.wav,
+      );
+      nextSliceSeq = markPieceUploaded(pendingBatch);
+    }
+    audioOffsetSec += pendingBatch.durationSeconds;
+    for (const file of pendingBatch.files) {
+      await unlink(file).catch(() => undefined);
+    }
+    logFrontend(`slices uploaded count=${pendingBatch.pieces.length} next=${nextSliceSeq}`);
+    pendingBatch = null;
+  }
+}
+
+async function enqueueCapture(noteId: string, captured: CaptureFiles): Promise<void> {
+  waitingCaptures.push(captured);
+  await drainUploads(noteId);
 }
 
 async function exportLiveChunk(): Promise<void> {
@@ -494,12 +560,16 @@ async function exportLiveChunk(): Promise<void> {
   if (!noteId || capture.getState() === 'idle') {
     return;
   }
+  if (hasHeldAudio()) {
+    await drainUploads(noteId);
+    return;
+  }
   const captured = await capture.exportChunk();
   if (!captured) {
     return;
   }
   logFrontend(`export chunk sec=${captured.durationSeconds.toFixed(1)}`);
-  await uploadCaptured(noteId, captured);
+  await enqueueCapture(noteId, captured);
 }
 
 ipcMain.handle('capture:arm', (_event, noteId: string) => {
@@ -522,13 +592,20 @@ ipcMain.handle('debug:stopAndTranscribe', async (_event, noteId: string, typedNo
   try {
     const captured = await capture.stop();
     tailSeconds = Number(captured.durationSeconds) || 0;
-    await uploadCaptured(noteId, captured);
+    waitingCaptures.push(captured);
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
-    if ((message !== 'empty' && message !== 'too_short') || nextSliceSeq === 1) {
+    const benign = message === 'empty' || message === 'too_short';
+    if (!hasHeldAudio() && (!benign || nextSliceSeq === 1)) {
       resetExport();
       throw error;
     }
+  }
+  try {
+    await drainUploads(noteId);
+  } catch (error) {
+    logFrontend(`upload ${error instanceof Error ? error.message : 'failed'}`);
+    throw new Error('upload_paused');
   }
   const durationSeconds = audioOffsetSec;
   const config = await loadAppConfig();
@@ -672,6 +749,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  resetExport();
   capture.dispose();
   lastMix = null;
   lastMic = null;

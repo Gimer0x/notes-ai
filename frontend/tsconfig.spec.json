@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist-test",
+    "rootDir": "./src",
+    "noEmit": false
+  },
+  "include": ["src/capture/upload-queue.ts", "src/capture/upload-queue.spec.ts"],
+  "exclude": []
+}

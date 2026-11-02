@@ -36,6 +36,8 @@
   "errorNoLastMix": "No hay mezcla para reenviar. Graba de nuevo y pulsa Detener. Al reiniciar la app se descarta la última mezcla.",
   "errorSpike": "Falló la transcripción",
   "errorGeneric": "Algo salió mal",
+  "uploadPaused": "La subida se pausó. Esta grabación sigue en esta Mac. Pulsa Generar para reintentar.",
+  "backendUnavailable": "Pith no puede llegar al servidor ahora. Tu lugar en esta Mac no cambió.",
   "askPlaceholder": "Pregunta lo que quieras",
   "listRecentTodos": "Listar pendientes recientes",
   "askAttach": "Adjuntar un archivo",

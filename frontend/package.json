@@ -11,7 +11,8 @@
     "start": "npm run build && npm run app-name && electron .",
     "start:ui": "npm run build:ui && npm run app-name && electron .",
     "start:dev": "npm start",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.renderer.json && node scripts/check-i18n.cjs"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.renderer.json && node scripts/check-i18n.cjs",
+    "test": "tsc -p tsconfig.spec.json && node --test dist-test/capture/upload-queue.spec.js"
   },
   "dependencies": {
     "dotenv": "^16.6.1",

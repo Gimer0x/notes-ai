@@ -13,6 +13,7 @@ let pauseWarningSeconds: number | null = null;
 let pauseWarnTimer: number | null = null;
 let pauseCancelTimer: number | null = null;
 let captureState: 'idle' | 'listening' | 'paused' = 'idle';
+let uploadPaused = false;
 let waitingForMicrophone = false;
 let meetingStartedAt: Date | null = null;
 let summaryLines: string[] = [];
@@ -794,6 +795,8 @@ function errorCode(error: unknown): string {
     'safe_storage_unavailable',
     'already_running',
     'not_listening',
+    'upload_paused',
+    'backend_unavailable',
     'File too large',
     'no_last_mix',
   ];
@@ -834,6 +837,10 @@ function setError(code: string): void {
                     ? t.errorNoLastMix
                   : code === 'not_listening'
                     ? t.errorNotListening
+                  : code === 'upload_paused'
+                    ? t.uploadPaused
+                  : code === 'backend_unavailable'
+                    ? t.backendUnavailable
             : code === 'mic_format'
                 ? t.errorMicDenied
             : code === 'no_google_client'
@@ -866,11 +873,12 @@ function applyGenerateEnabled(): void {
   toggle.textContent = captureState === 'paused' ? t.resume : t.stop;
   toggle.disabled =
     busy || captureFinished || (captureState !== 'listening' && captureState !== 'paused');
+  const recording = captureState === 'listening' || captureState === 'paused';
   generate.disabled =
     busy ||
     captureFinished ||
-    (captureState !== 'listening' && captureState !== 'paused') ||
-    !listenedEnough();
+    (!uploadPaused && !recording) ||
+    (!uploadPaused && !listenedEnough());
   generate.textContent = generating ? t.generating : t.generate;
   generate.classList.toggle('generating', generating);
   $('levelPill').hidden = false;
@@ -1122,15 +1130,15 @@ async function withBusy(fn: () => Promise<void>): Promise<void> {
   }
   busy = true;
   $('error').textContent = '';
-  await syncButtons();
   try {
+    await syncButtons();
     await fn();
   } catch (error) {
     setError(errorCode(error));
   } finally {
     busy = false;
     awaitingTranscript = false;
-    await syncButtons();
+    await syncButtons().catch(() => undefined);
   }
 }
 
@@ -1275,14 +1283,19 @@ async function init(): Promise<void> {
               renderNoteMeta();
             }
           }
+          uploadPaused = false;
           if (result.summaryText.length > 0) {
             showSummary(result);
           } else {
             setError('summary_failed');
           }
         } catch (error) {
-          await pith.notes.cancel(noteId).catch(() => undefined);
-          liveNoteId = null;
+          const code = errorCode(error);
+          uploadPaused = code !== 'too_short' && code !== 'empty';
+          if (code === 'too_short' || code === 'empty') {
+            await pith.notes.cancel(noteId).catch(() => undefined);
+            liveNoteId = null;
+          }
           if (!captureFinished) {
             freezeTimer(recordedSeconds());
           }

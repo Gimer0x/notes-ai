@@ -204,6 +204,9 @@ function apiMessage(error: unknown): string {
   if (code.includes('mail_not_configured')) {
     return t.errorMailNotConfigured;
   }
+  if (code.includes('backend_unavailable')) {
+    return t.backendUnavailable;
+  }
   return t.errorGeneric;
 }
 
@@ -359,21 +362,6 @@ async function reloadLists(): Promise<void> {
     workspaces.map((workspace) => pith.notes.listNotes(workspace.id)),
   );
   notes = groups.flat();
-  const staleIds = new Set(
-    notes
-      .filter(
-        (note) =>
-          note.id !== liveNoteId &&
-          (note.status === 'listening' || note.status === 'paused'),
-      )
-      .map((note) => note.id),
-  );
-  await Promise.all(
-    [...staleIds].map((id) => pith.notes.cancel(id).catch(() => undefined)),
-  );
-  if (staleIds.size > 0) {
-    notes = notes.filter((note) => !staleIds.has(note.id));
-  }
   listsReady = true;
   syncNewNote();
 }
@@ -402,7 +390,15 @@ async function abandonListen(): Promise<void> {
 }
 
 async function refreshMe(): Promise<void> {
-  me = await pith.auth.me();
+  try {
+    me = await pith.auth.me();
+  } catch (error) {
+    setMainError(apiMessage(error));
+    if (!me) {
+      syncNewNote();
+    }
+    return;
+  }
   const signedIn = Boolean(me);
   $('signIn').hidden = signedIn;
   $('signOut').hidden = !signedIn;
@@ -1865,16 +1861,20 @@ async function init(): Promise<void> {
   locale = await pith.getLocale();
   t = await pith.getMessages(locale);
   applyCopy();
-  await refreshPlan();
-  $('signIn').addEventListener('click', async () => {
-    await pith.auth.login();
+  try {
     await refreshPlan();
+  } catch (error) {
+    setMainError(apiMessage(error));
+  }
+  $('signIn').addEventListener('click', async () => {
     try {
+      await pith.auth.login();
+      await refreshPlan();
       await reloadLists();
+      render();
     } catch (error) {
       setMainError(apiMessage(error));
     }
-    render();
   });
   $('signOut').addEventListener('click', async () => {
     await abandonListen();

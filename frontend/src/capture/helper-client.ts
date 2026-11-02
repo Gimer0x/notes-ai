@@ -120,6 +120,10 @@ export class HelperClient {
       process.stderr.write(chunk);
       this.stderrListener?.(chunk);
     });
+    this.child.on('error', (error: Error) => {
+      this.failAll(error);
+      this.child = null;
+    });
     this.child.on('exit', () => {
       this.failAll(new Error('helper_exit'));
       this.child = null;

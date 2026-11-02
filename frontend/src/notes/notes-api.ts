@@ -149,17 +149,16 @@ export class NotesApi {
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    if (response.status === 204) {
-      return undefined as T;
-    }
-    const payload = (await response.json().catch(() => ({}))) as {
-      message?: string | string[];
-    };
+    const text = await response.text();
+    const payload = parsePayload(text);
     if (!response.ok) {
       const message = Array.isArray(payload.message)
         ? payload.message.join(', ')
         : payload.message;
       throw new Error(message || `notes_${response.status}`);
+    }
+    if (response.status === 204 || text.length === 0) {
+      return undefined as T;
     }
     return payload as T;
   }
@@ -177,12 +176,34 @@ export class NotesApi {
       },
       body: new Uint8Array(form.getBuffer()),
     });
-    const payload = (await response.json().catch(() => ({}))) as { message?: string | string[] };
+    const text = await response.text();
+    const payload = parsePayload(text);
     if (!response.ok) {
       const message = Array.isArray(payload.message) ? payload.message.join(', ') : payload.message;
       throw new Error(message || `notes_${response.status}`);
     }
+    if (text.length === 0) {
+      return undefined as T;
+    }
     return payload as T;
+  }
+}
+
+function parsePayload(text: string): { message?: string | string[] } {
+  if (!text) {
+    return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('bad_response');
+    }
+    return parsed as { message?: string | string[] };
+  } catch (error) {
+    if (error instanceof Error && error.message === 'bad_response') {
+      throw error;
+    }
+    throw new Error('bad_response');
   }
 }
 
