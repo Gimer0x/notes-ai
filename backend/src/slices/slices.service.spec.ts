@@ -200,15 +200,15 @@ describe('independent background workers', () => {
       queries.push({ sql, values });
       if (sql.includes('SELECT final_seq')) return { rows: [{
         status: 'processing', summary_running: false, summary_from_transcript: true,
-        final_seq: 3, transcript_text: 'Typed decision\n\nSurviving speech',
-        transcript_turns: null, transcript_complete: false, language: 'es',
+        final_seq: 3, transcript_text: 'Surviving speech', typed_notes: 'Typed decision',
+        duration_seconds: 300, transcript_turns: null, transcript_complete: false, language: 'es',
       }] };
       return { rows: [{ id: NOTE }] };
     }) };
     const summary = { summarize: jest.fn(async () => ({ bullets: ['Result'] })) };
     const slices = new SlicesService(db as never, {} as never, summary as never, {} as never);
     await (slices as any).maybeSummarize(NOTE);
-    expect(summary.summarize).toHaveBeenCalledWith('Typed decision\n\nSurviving speech', 'es');
+    expect(summary.summarize).toHaveBeenCalledWith('Surviving speech', 'es', 300, 'Typed decision');
     expect(queries.some(({ sql }) => sql.includes('FROM note_slices'))).toBe(false);
     const transcript = queries.find(({ sql }) => sql.includes('SET transcript_text'))!;
     expect(transcript.values?.[5]).toBe(false);

@@ -159,7 +159,18 @@ export class NotesService {
     if (!transcript) {
       return this.markReady(userId, noteId, null);
     }
-    return this.writeSummary(userId, noteId, transcript, languageCode ?? 'en');
+    const written = await this.db.query<{ typed_notes: string | null }>(
+      `SELECT typed_notes FROM notes WHERE id = $1 AND user_id = $2`,
+      [noteId, userId],
+    );
+    return this.writeSummary(
+      userId,
+      noteId,
+      transcript,
+      languageCode ?? 'en',
+      durationSeconds,
+      written.rows[0]?.typed_notes ?? null,
+    );
   }
 
   async retry(userId: string, noteId: string): Promise<NoteResponse> {
@@ -186,9 +197,11 @@ export class NotesService {
     noteId: string,
     transcript: string,
     language: MeetingLanguage,
+    durationSeconds?: number | null,
+    typedNotes?: string | null,
   ): Promise<NoteResponse> {
     try {
-      const summary = await this.summary.summarize(transcript, language);
+      const summary = await this.summary.summarize(transcript, language, durationSeconds, typedNotes);
       return this.markReady(userId, noteId, summary.bullets.join('\n'));
     } catch (error) {
       const result = await this.db.query<NoteRow>(

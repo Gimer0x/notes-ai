@@ -230,9 +230,29 @@ async function typeInto(node: HTMLElement, text: string, token: number): Promise
   if (token !== summaryTypeToken) {
     return false;
   }
-  node.textContent = text;
+  writeSummaryText(node, text);
   node.scrollIntoView({ block: 'nearest' });
   return true;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
+function writeSummaryText(node: HTMLElement, text: string): void {
+  if (!/https?:\/\//i.test(text)) {
+    node.textContent = text;
+    return;
+  }
+  node.innerHTML = escapeHtml(text).replace(/https?:\/\/[^\s<]+/gi, (raw) => {
+    const url = raw.replace(/[),.;:!?]+$/, '');
+    const tail = raw.slice(url.length);
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>${tail}`;
+  });
 }
 
 function paintSummary(view: HTMLElement, items: SummaryItem[]): void {
@@ -247,7 +267,7 @@ function paintSummary(view: HTMLElement, items: SummaryItem[]): void {
       list = openSummaryList(view, item.kind);
       listKind = item.kind;
     }
-    appendSummaryItem(view, item, list).textContent = item.text;
+    writeSummaryText(appendSummaryItem(view, item, list), item.text);
   }
   scrollSummaryToStart();
 }

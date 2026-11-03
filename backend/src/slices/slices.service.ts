@@ -456,9 +456,10 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
       transcript_turns: string | null;
       transcript_complete: boolean;
       language: 'en' | 'es' | null;
+      duration_seconds: number | null;
     }>(
       `SELECT final_seq, typed_notes, status, summary_running, summary_from_transcript,
-              transcript_text, transcript_turns, transcript_complete, language
+              transcript_text, transcript_turns, transcript_complete, language, duration_seconds
        FROM notes WHERE id = $1`,
       [noteId],
     );
@@ -467,6 +468,7 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     let transcript = row.transcript_text ?? '';
+    let spokenForModel = transcript;
     let turnsJson = row.transcript_turns;
     let language = row.language ?? 'en';
     let complete = row.transcript_complete;
@@ -505,6 +507,7 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
         }))
         .filter((turn) => turn.text.length > 0);
       const spoken = turns.map((turn) => turn.text).join('\n\n');
+      spokenForModel = spoken;
       transcript = [row.typed_notes?.trim() ?? '', spoken].filter(Boolean).join('\n\n');
       turnsJson = turns.length > 0 ? JSON.stringify(turns) : null;
       language = slices.rows.find((slice) => slice.language)?.language ?? 'en';
@@ -555,7 +558,8 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
          WHERE id = $1 AND summary_lease = $5`,
         [noteId, transcript || null, turnsJson, language, lease, complete],
       );
-      if (!transcript) {
+      const typedNotes = row.typed_notes?.trim() ?? '';
+      if (!transcript && !typedNotes) {
         await this.db.query(
           `UPDATE notes
            SET status = 'ready',
@@ -569,7 +573,12 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
         );
         return;
       }
-      const summary = await this.summary.summarize(transcript, language);
+      const summary = await this.summary.summarize(
+        spokenForModel,
+        language,
+        row.duration_seconds,
+        row.typed_notes,
+      );
       await this.db.query(
         `UPDATE notes
          SET status = 'ready',

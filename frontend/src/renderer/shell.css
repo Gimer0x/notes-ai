@@ -1283,6 +1283,14 @@ button.icon-btn:hover:not(:disabled) {
   line-height: 1.5;
 }
 
+.summary-heading a,
+.summary-list a,
+.summary-steps a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .summary-heading {
   margin: 18px 0 8px;
   font-size: 13.65pt;

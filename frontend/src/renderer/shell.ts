@@ -1504,7 +1504,7 @@ function renderSummary(lines: string[]): string {
     }
     if (item.kind === 'h') {
       closeList();
-      html += `<h2 class="summary-heading">${escapeHtml(item.text)}</h2>`;
+      html += `<h2 class="summary-heading">${linkifySummary(item.text)}</h2>`;
       continue;
     }
     if (list !== item.kind) {
@@ -1513,7 +1513,7 @@ function renderSummary(lines: string[]): string {
       html += list === 'ul' ? '<ul class="summary-list">' : '<ol class="summary-steps">';
     }
     const nested = item.depth > 0 ? ' class="nested"' : '';
-    html += `<li${nested}>${escapeHtml(item.text)}</li>`;
+    html += `<li${nested}>${linkifySummary(item.text)}</li>`;
   }
   closeList();
   return html;
@@ -2544,6 +2544,14 @@ function escapeHtml(value: string): string {
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
+}
+
+function linkifySummary(value: string): string {
+  return escapeHtml(value).replace(/https?:\/\/[^\s<]+/gi, (raw) => {
+    const url = raw.replace(/[),.;:!?]+$/, '');
+    const tail = raw.slice(url.length);
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>${tail}`;
+  });
 }
 
 void init();

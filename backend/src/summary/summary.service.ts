@@ -6,13 +6,21 @@ export abstract class SummaryService {
   abstract summarize(
     transcript: string,
     language: MeetingLanguage,
+    durationSeconds?: number | null,
+    typedNotes?: string | null,
   ): Promise<{ bullets: string[] }>;
 }
 
 @Injectable()
 export class TestSummaryService extends SummaryService {
-  summarize(transcript: string): Promise<{ bullets: string[] }> {
-    const line = transcript
+  summarize(
+    transcript: string,
+    _language?: MeetingLanguage,
+    _durationSeconds?: number | null,
+    typedNotes?: string | null,
+  ): Promise<{ bullets: string[] }> {
+    const source = [typedNotes ?? '', transcript].filter((part) => part.trim().length > 0).join('\n');
+    const line = source
       .split('\n')
       .map((part) => part.trim())
       .find((part) => part.length > 0);
@@ -20,18 +28,36 @@ export class TestSummaryService extends SummaryService {
   }
 }
 
-const MAX_SECTIONS = 8;
+/** Ceiling for main sections. A closing section counts only when the meeting needs one. */
+export function summarySectionLimit(durationSeconds: number | null | undefined): number {
+  if (durationSeconds == null || !Number.isFinite(durationSeconds) || durationSeconds < 0) {
+    return 10;
+  }
+  const minutes = durationSeconds / 60;
+  if (minutes < 10) {
+    return 3;
+  }
+  if (minutes < 20) {
+    return 5;
+  }
+  if (minutes < 30) {
+    return 6;
+  }
+  return 10;
+}
 
-export function parseSummaryBullets(text: string): string[] {
+const DEFAULT_SECTIONS = 8;
+
+export function parseSummaryBullets(text: string, maxSections = DEFAULT_SECTIONS): string[] {
   const lines = text
     .split('\n')
     .map((line) => normalizeSummaryLine(line.replace(/\t/g, '  ')))
     .filter((line) => line.length > 0)
-    .slice(0, 60);
-  return arrangeSections(lines).flat();
+    .slice(0, 80);
+  return arrangeSections(lines, Math.max(1, maxSections)).flat();
 }
 
-function arrangeSections(lines: string[]): string[][] {
+function arrangeSections(lines: string[], maxSections: number): string[][] {
   const sections: string[][] = [];
   let current: string[] = [];
   for (const line of lines) {
@@ -55,14 +81,14 @@ function arrangeSections(lines: string[]): string[][] {
       closing,
     ];
   }
-  if (ordered.length <= MAX_SECTIONS) {
+  if (ordered.length <= maxSections) {
     return ordered;
   }
   const last = ordered[ordered.length - 1];
   if (last && isClosingSection(last[0] ?? '')) {
-    return [...ordered.slice(0, MAX_SECTIONS - 1), last];
+    return [...ordered.slice(0, maxSections - 1), last];
   }
-  return ordered.slice(0, MAX_SECTIONS);
+  return ordered.slice(0, maxSections);
 }
 
 function isClosingSection(heading: string): boolean {
@@ -72,7 +98,9 @@ function isClosingSection(heading: string): boolean {
     title === 'conclusiones' ||
     title === 'next steps' ||
     title === 'próximos pasos' ||
-    title === 'proximos pasos'
+    title === 'proximos pasos' ||
+    title === 'summary' ||
+    title === 'resumen'
   );
 }
 
