@@ -76,8 +76,8 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
   private inFlight = 0;
   private ticking = false;
   private stopped = false;
-  private readonly transcriptionConcurrency = concurrency('TRANSCRIPTION_CONCURRENCY', 2);
-  private readonly summaryConcurrency = concurrency('SUMMARY_CONCURRENCY', 2);
+  private readonly transcriptionConcurrency = concurrency('TRANSCRIPTION_CONCURRENCY', 8);
+  private readonly summaryConcurrency = concurrency('SUMMARY_CONCURRENCY', 4);
   private readonly summarizing = new Set<string>();
 
   constructor(

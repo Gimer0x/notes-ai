@@ -41,8 +41,6 @@ describe('durable processing (e2e)', () => {
       summaryActive--; summarized++;
       return { bullets: ['Summary'] };
     });
-    worker.transcriptionConcurrency = 8;
-    worker.summaryConcurrency = 2;
     const records = await db.query<{ id: string; user_id: string }>(`
       WITH u AS (
         INSERT INTO users (google_subject, email, plan_code)
@@ -80,7 +78,7 @@ describe('durable processing (e2e)', () => {
     expect(summarized).toBe(100);
     expect(maxStt).toBeLessThanOrEqual(8);
     expect(maxStt).toBeGreaterThan(1);
-    expect(maxSummary).toBeLessThanOrEqual(2);
+    expect(maxSummary).toBeLessThanOrEqual(4);
     const ledger = await db.query<{ count: string }>('SELECT count(*)::text AS count FROM listen_ledger');
     expect(Number(ledger.rows[0].count)).toBe(100);
     const final = await db.query<{ count: string }>(`SELECT count(*)::text AS count FROM notes

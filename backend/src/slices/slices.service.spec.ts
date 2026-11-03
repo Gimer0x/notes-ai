@@ -143,6 +143,9 @@ describe('independent background workers', () => {
     const db = { query: jest.fn(async () => ({ rows: [{ id: NOTE }, { id: USER }, { id: 'third' }] })) };
     const slices = new SlicesService(db as never, {} as never, {} as never, {} as never);
     const worker = slices as any;
+    // Exercise a small bound independently of the production defaults.
+    worker.transcriptionConcurrency = 2;
+    worker.summaryConcurrency = 2;
     worker.recoverStale = jest.fn();
     worker.purgeFailedAudio = jest.fn();
     worker.expireMissingSlices = jest.fn();
