@@ -31,12 +31,12 @@ export class DbService implements OnModuleInit, OnModuleDestroy {
       await this.query(statement);
     }
     await this.query(SEED_PLANS_SQL);
-    const plans = await this.query<{ code: string }>(
-      'SELECT code FROM plans ORDER BY code',
-    );
-    this.logger.log(
-      `postgres ready; plans=${plans.rows.map((row) => row.code).join(',')}`,
-    );
+    // const plans = await this.query<{ code: string }>(
+    //   'SELECT code FROM plans ORDER BY code',
+    // );
+    // this.logger.log(
+    //   `postgres ready; plans=${plans.rows.map((row) => row.code).join(',')}`,
+    // );
   }
 
   async onModuleDestroy(): Promise<void> {

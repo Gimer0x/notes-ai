@@ -208,7 +208,7 @@ describe('independent background workers', () => {
     const summary = { summarize: jest.fn(async () => ({ bullets: ['Result'] })) };
     const slices = new SlicesService(db as never, {} as never, summary as never, {} as never);
     await (slices as any).maybeSummarize(NOTE);
-    expect(summary.summarize).toHaveBeenCalledWith('Surviving speech', 'es', 300, 'Typed decision');
+    expect(summary.summarize).toHaveBeenCalledWith('Surviving speech', 'en', 300, 'Typed decision');
     expect(queries.some(({ sql }) => sql.includes('FROM note_slices'))).toBe(false);
     const transcript = queries.find(({ sql }) => sql.includes('SET transcript_text'))!;
     expect(transcript.values?.[5]).toBe(false);

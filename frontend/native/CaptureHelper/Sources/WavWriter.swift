@@ -37,7 +37,7 @@ enum WavWriter {
     }
 
     try data.write(to: url, options: .atomic)
-    fputs("wrote wav bytes=\(data.count) samples=\(samples.count) path=\(url.path)\n", stderr)
+    CaptureLog.line("wrote wav bytes=\(data.count) samples=\(samples.count) path=\(url.path)")
   }
 }
 

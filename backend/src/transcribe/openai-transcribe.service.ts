@@ -16,6 +16,7 @@ import {
   usageFromTranscription,
   type TranscribeUsage,
 } from './stt-cost';
+import { meetingLanguage } from './meeting-language';
 import type { MeetingLanguage, TranscriptResult, TranscribeService } from './transcribe.service';
 
 const DEFAULT_MODEL = 'gpt-4o-mini-transcribe';
@@ -119,7 +120,7 @@ export class OpenAiTranscribeService implements TranscribeService {
           ? this.fromApiLanguage(
               'language' in result ? String(result.language) : undefined,
             )
-          : this.fromTranscript(text);
+          : meetingLanguage(text);
         usage = addUsage(
           usage,
           usageFromTranscription(result, duration),
@@ -166,56 +167,5 @@ export class OpenAiTranscribeService implements TranscribeService {
       return 'es';
     }
     return 'en';
-  }
-
-  private fromTranscript(text: string): MeetingLanguage {
-    const tokens = text.toLowerCase().match(/[a-záéíóúñü]+/gi) ?? [];
-    const spanishMarkers = new Set([
-      'el',
-      'la',
-      'los',
-      'las',
-      'de',
-      'que',
-      'y',
-      'en',
-      'un',
-      'una',
-      'es',
-      'por',
-      'con',
-      'para',
-      'como',
-      'está',
-      'este',
-      'esta',
-      'pero',
-      'más',
-    ]);
-    const englishMarkers = new Set([
-      'the',
-      'and',
-      'of',
-      'to',
-      'a',
-      'in',
-      'is',
-      'it',
-      'for',
-      'on',
-      'that',
-      'with',
-      'this',
-      'are',
-      'was',
-      'be',
-    ]);
-    let spanish = (text.match(/[áéíóúñ¿¡]/g) ?? []).length;
-    let english = 0;
-    for (const token of tokens) {
-      if (spanishMarkers.has(token)) spanish += 1;
-      if (englishMarkers.has(token)) english += 1;
-    }
-    return spanish > english ? 'es' : 'en';
   }
 }

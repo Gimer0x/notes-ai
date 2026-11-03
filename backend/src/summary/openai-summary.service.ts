@@ -32,13 +32,8 @@ export class OpenAiSummaryService extends SummaryService {
         ? Math.max(1, Math.round(durationSeconds / 60))
         : null;
     const depth =
-      limit <= 3
-        ? 'Put one or two ideas under each heading.'
-        : 'When several ideas belong to the same topic, keep them as bullets and indented sub-points under that one heading.';
-    const range =
-      limit >= 10
-        ? 'Use 8 to 10 sections when the meeting has that much substance, and never more than 10.'
-        : `Use at most ${limit} sections.`;
+      'Present the main ideas as bullets. A numbered third level is optional. Most bullets have no numbered lines. Add them only when one bullet needs a short expansion, such as a few names, figures, or steps that belong to that idea. Do not add a third level to fill space, and do not put the section’s main ideas in a numbered list.';
+    const range = `Use at most ${limit} sections.`;
     const notes = typedNotes?.trim() ?? '';
     const openai = new OpenAI({ apiKey, maxRetries: 1, timeout: 120_000 });
     try {
@@ -50,10 +45,10 @@ export class OpenAiSummaryService extends SummaryService {
             role: 'system',
             content: `You write a structured meeting summary in ${spoken}. Use only this layout:
 - Each section starts with a heading line: "# Section title"
-- Under a heading, each point is a bullet line that starts with "• "
-- Indent a sub-point with two spaces, still starting with "• "
-- When one point has scenarios or steps, list them underneath as indented lines "1. ", "2. ", "3. "
+- Under a heading, each main idea is a bullet line that starts with "• ". Use at most 5 bullets in one section. A section can be only bullets.
+- A third level is optional. When one bullet needs a short expansion, indent up to 5 numbered lines under it: "  1. ", "  2. ". Use numbers, not bullets. Leave the third level out when the bullet already says the idea.
 No preamble, no dash bullets, and no text before the first heading.
+Write every heading and bullet in ${spoken}. Do not switch to another language. Keep names and URLs as they were spoken or typed.
 ${range} That number is a ceiling, not a quota. Use fewer sections when the meeting is thin. Do not invent sections to fill the cap. Merge related ideas under one heading instead of adding another section.
 ${depth}
 Add a final section only when the meeting has something worth remarking that is not already covered. Use "${steps}" when there are follow-up actions. Use "${closing}" when there are decisions or takeaways to remark. Use "${recap}" when a short recap of the important points is useful. If the meeting is thin, or those points already sit in the sections above, do not add this section. When you add one, it is the last section, it counts toward the ceiling, and you add only one of those three.

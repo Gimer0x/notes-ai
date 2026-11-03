@@ -119,7 +119,49 @@ function wait(ms: number): Promise<void> {
 type SummaryKind = 'h' | 'ul' | 'ol';
 type SummaryItem = { kind: SummaryKind; depth: number; text: string };
 
+function openBullets(lines: string[]): string[] {
+  const sections: string[][] = [];
+  let current: string[] = [];
+  for (const line of lines) {
+    if (line.trim().startsWith('#') && current.length > 0) {
+      sections.push(current);
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length > 0) {
+    sections.push(current);
+  }
+  return sections.flatMap((group) => {
+    const heading = group[0]?.trim().startsWith('#') ? group[0] : null;
+    const body = (heading ? group.slice(1) : group).filter((line) => line.trim().length > 0);
+    const bullets: { text: string; children: string[] }[] = [];
+    for (const line of body) {
+      const indent = line.match(/^ */)?.[0].length ?? 0;
+      const text = line.trim().replace(/^(?:[•\-*]|\d+[.)])\s+/, '').trim();
+      if (!text) {
+        continue;
+      }
+      if (indent >= 2 && bullets.length > 0) {
+        bullets[bullets.length - 1].children.push(text);
+        continue;
+      }
+      bullets.push({ text, children: [] });
+    }
+    if (bullets.length !== 1 || bullets[0].children.length === 0) {
+      return group;
+    }
+    const shaped = heading ? [heading] : [];
+    for (const text of [bullets[0].text, ...bullets[0].children]) {
+      shaped.push(`• ${text}`);
+    }
+    return shaped;
+  });
+}
+
 function summaryItems(lines: string[]): SummaryItem[] {
+  lines = openBullets(lines);
   const items: SummaryItem[] = [];
   for (const line of lines) {
     const indent = line.match(/^ */)?.[0].length ?? 0;
@@ -133,17 +175,19 @@ function summaryItems(lines: string[]): SummaryItem[] {
       continue;
     }
     const numbered = text.match(/^\d+[.)]\s+(.*)$/);
-    if (numbered) {
-      items.push({ kind: 'ol', depth, text: numbered[1] });
+    const bullet = text.match(/^[•\-*]\s+(.*)$/);
+    const body = numbered ? numbered[1] : bullet ? bullet[1] : text;
+    if (depth > 0) {
+      items.push({ kind: 'ol', depth, text: body });
       continue;
     }
-    const bullet = text.match(/^[•\-*]\s+(.*)$/);
-    items.push({ kind: 'ul', depth, text: bullet ? bullet[1] : text });
+    items.push({ kind: 'ul', depth: 0, text: body });
   }
   return items;
 }
 
 function summaryPlainText(lines: string[]): string {
+  lines = openBullets(lines);
   const blocks: string[] = [];
   let numbered = false;
   let step = 0;
@@ -164,19 +208,20 @@ function summaryPlainText(lines: string[]): string {
       continue;
     }
     const stepMatch = text.match(/^\d+[.)]\s+(.*)$/);
+    const bullet = text.match(/^[•\-*]\s+(.*)$/);
     const pad = '  '.repeat(depth);
-    if (stepMatch) {
+    if (depth > 0) {
       if (!numbered) {
         numbered = true;
         step = 0;
       }
       step += 1;
-      blocks.push(`${pad}${step}. ${stepMatch[1]}`);
+      const body = stepMatch ? stepMatch[1] : bullet ? bullet[1] : text;
+      blocks.push(`${pad}${step}. ${body}`);
       continue;
     }
     numbered = false;
-    const bullet = text.match(/^[•\-*]\s+(.*)$/);
-    blocks.push(`${pad}• ${bullet ? bullet[1] : text}`);
+    blocks.push(`• ${bullet ? bullet[1] : stepMatch ? stepMatch[1] : text}`);
   }
   return blocks.join('\n').trim();
 }

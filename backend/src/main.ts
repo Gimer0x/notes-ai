@@ -29,6 +29,8 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
     rawBody: true,
+    // logger: ['error', 'warn', 'log'], // startup route list
+    logger: ['error', 'warn'],
   });
   app.useBodyParser('json', { limit: '8mb' });
   app.useBodyParser('urlencoded', { extended: true, limit: '1mb' });

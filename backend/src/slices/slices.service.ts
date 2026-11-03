@@ -13,6 +13,7 @@ import {
 import { assertUuid, safeErrorMessage } from '../common/safe-error';
 import { BillingService } from '../billing/billing.service';
 import { DbService } from '../db/db.service';
+import { mainMeetingLanguage, meetingLanguage } from '../transcribe/meeting-language';
 import { cleanSpeech } from '../notes/clean-speech';
 import { SummaryService } from '../summary/summary.service';
 import { OpenAiTranscribeService } from '../transcribe/openai-transcribe.service';
@@ -470,7 +471,7 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
     let transcript = row.transcript_text ?? '';
     let spokenForModel = transcript;
     let turnsJson = row.transcript_turns;
-    let language = row.language ?? 'en';
+    let language = meetingLanguage(row.transcript_text ?? '');
     let complete = row.transcript_complete;
     if (!row.summary_from_transcript) {
       if (row.final_seq == null) {
@@ -510,7 +511,12 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
       spokenForModel = spoken;
       transcript = [row.typed_notes?.trim() ?? '', spoken].filter(Boolean).join('\n\n');
       turnsJson = turns.length > 0 ? JSON.stringify(turns) : null;
-      language = slices.rows.find((slice) => slice.language)?.language ?? 'en';
+      language = mainMeetingLanguage(
+        turns.map((turn) => ({
+          text: turn.text,
+          seconds: Math.max(0, turn.endSec - turn.startSec),
+        })),
+      );
       complete = true;
     }
     const lease = randomUUID();

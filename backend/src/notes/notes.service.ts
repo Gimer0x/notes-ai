@@ -9,6 +9,7 @@ import { BillingService } from '../billing/billing.service';
 import { assertUuid, safeErrorMessage } from '../common/safe-error';
 import { DbService } from '../db/db.service';
 import { SlicesService } from '../slices/slices.service';
+import { meetingLanguage } from '../transcribe/meeting-language';
 import { SummaryService, type MeetingLanguage } from '../summary/summary.service';
 import { cleanSpeech } from './clean-speech';
 import { toNote, type NoteResponse, type NoteRow, type TranscriptTurn } from './note.types';
@@ -124,8 +125,12 @@ export class NotesService {
     if (!Number.isFinite(durationSeconds) || durationSeconds < 0) {
       throw new BadRequestException('duration_seconds');
     }
-    const languageCode = language === 'en' || language === 'es' ? language : null;
     const transcript = cleanTranscript(transcriptText);
+    const languageCode = transcript
+      ? meetingLanguage(transcript)
+      : language === 'en' || language === 'es'
+        ? language
+        : null;
     const savedTurns = cleanTurns(turns);
     await this.db.transaction(async (query) => {
       const updated = await query<NoteRow>(

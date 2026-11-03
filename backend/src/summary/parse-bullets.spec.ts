@@ -10,9 +10,41 @@ describe('parseSummaryBullets', () => {
     expect(bullets).toEqual([
       '# Close',
       '• The team agrees',
-      '  • A nested point',
-      '  1. Post it',
-      '2. Iterate',
+      '  1. A nested point',
+      '  2. Post it',
+      '• Iterate',
+    ]);
+  });
+
+  it('turns a single bullet with a numbered list into several bullets', () => {
+    const bullets = parseSummaryBullets(`# Insights
+• Mark covered the debt bubble.
+  1. Companies spend more than they earn.
+  2. A bubble could burst.
+  3. Stay ahead in technology.`);
+    expect(bullets).toEqual([
+      '# Insights',
+      '• Mark covered the debt bubble.',
+      '• Companies spend more than they earn.',
+      '• A bubble could burst.',
+      '• Stay ahead in technology.',
+    ]);
+  });
+
+  it('keeps at most five bullets and five numbered details', () => {
+    const lines = [
+      '# Topic',
+      ...Array.from({ length: 6 }, (_, index) => `• Bullet ${index + 1}`),
+      ...Array.from({ length: 6 }, (_, index) => `  • Detail ${index + 1}`),
+    ].join('\n');
+    const bullets = parseSummaryBullets(lines, 4);
+    expect(bullets.filter((line) => line.startsWith('• '))).toHaveLength(5);
+    expect(bullets.filter((line) => line.startsWith('  '))).toEqual([
+      '  1. Detail 1',
+      '  2. Detail 2',
+      '  3. Detail 3',
+      '  4. Detail 4',
+      '  5. Detail 5',
     ]);
   });
 
@@ -30,12 +62,12 @@ describe('parseSummaryBullets', () => {
   });
 
   it('sets the section ceiling from the meeting length', () => {
-    expect(summarySectionLimit(5 * 60)).toBe(3);
-    expect(summarySectionLimit(10 * 60 - 1)).toBe(3);
-    expect(summarySectionLimit(10 * 60)).toBe(5);
-    expect(summarySectionLimit(20 * 60 - 1)).toBe(5);
-    expect(summarySectionLimit(20 * 60)).toBe(6);
-    expect(summarySectionLimit(30 * 60 - 1)).toBe(6);
+    expect(summarySectionLimit(5 * 60)).toBe(4);
+    expect(summarySectionLimit(10 * 60 - 1)).toBe(4);
+    expect(summarySectionLimit(10 * 60)).toBe(8);
+    expect(summarySectionLimit(20 * 60 - 1)).toBe(8);
+    expect(summarySectionLimit(20 * 60)).toBe(8);
+    expect(summarySectionLimit(30 * 60 - 1)).toBe(8);
     expect(summarySectionLimit(30 * 60)).toBe(10);
     expect(summarySectionLimit(90 * 60)).toBe(10);
     expect(summarySectionLimit(null)).toBe(10);
@@ -51,11 +83,13 @@ describe('parseSummaryBullets', () => {
       '• Second',
       '# Topic C',
       '• Third',
+      '# Topic D',
+      '• Fourth',
     ].join('\n');
     const headings = parseSummaryBullets(lines, summarySectionLimit(5 * 60)).filter((line) =>
       line.startsWith('# '),
     );
-    expect(headings).toEqual(['# Topic A', '# Topic B', '# Conclusions']);
+    expect(headings).toEqual(['# Topic A', '# Topic B', '# Topic C', '# Conclusions']);
   });
 
   it('leaves a summary without a closing section unchanged', () => {

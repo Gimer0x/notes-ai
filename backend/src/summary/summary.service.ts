@@ -35,13 +35,10 @@ export function summarySectionLimit(durationSeconds: number | null | undefined):
   }
   const minutes = durationSeconds / 60;
   if (minutes < 10) {
-    return 3;
-  }
-  if (minutes < 20) {
-    return 5;
+    return 4;
   }
   if (minutes < 30) {
-    return 6;
+    return 8;
   }
   return 10;
 }
@@ -81,14 +78,60 @@ function arrangeSections(lines: string[], maxSections: number): string[][] {
       closing,
     ];
   }
-  if (ordered.length <= maxSections) {
-    return ordered;
+  const kept =
+    ordered.length <= maxSections
+      ? ordered
+      : (() => {
+          const last = ordered[ordered.length - 1];
+          if (last && isClosingSection(last[0] ?? '')) {
+            return [...ordered.slice(0, maxSections - 1), last];
+          }
+          return ordered.slice(0, maxSections);
+        })();
+  return kept.map(shapeSection);
+}
+
+const MAX_BULLETS = 5;
+const MAX_NUMBERED = 5;
+
+/** Second level is bullets. Third level is a numbered list under the bullet above it. */
+function shapeSection(lines: string[]): string[] {
+  const heading = lines[0]?.startsWith('# ') ? lines[0] : null;
+  const body = heading ? lines.slice(1) : lines;
+  const bullets: { text: string; children: string[] }[] = [];
+  for (const line of body) {
+    const indent = line.match(/^ */)?.[0].length ?? 0;
+    const text = line.trim().replace(/^(?:[•\-*]|\d+[.)])\s+/, '').trim();
+    if (!text) {
+      continue;
+    }
+    const nested = indent >= 2 && bullets.length > 0;
+    if (nested) {
+      const current = bullets[bullets.length - 1];
+      if (current.children.length < MAX_NUMBERED) {
+        current.children.push(text);
+      }
+      continue;
+    }
+    if (bullets.length < MAX_BULLETS) {
+      bullets.push({ text, children: [] });
+    }
   }
-  const last = ordered[ordered.length - 1];
-  if (last && isClosingSection(last[0] ?? '')) {
-    return [...ordered.slice(0, maxSections - 1), last];
+  const shapedBullets =
+    bullets.length === 1 && bullets[0].children.length > 0
+      ? [
+          { text: bullets[0].text, children: [] as string[] },
+          ...bullets[0].children.map((text) => ({ text, children: [] as string[] })),
+        ]
+      : bullets;
+  const shaped: string[] = heading ? [heading] : [];
+  for (const bullet of shapedBullets) {
+    shaped.push(`• ${bullet.text}`);
+    bullet.children.forEach((child, index) => {
+      shaped.push(`  ${index + 1}. ${child}`);
+    });
   }
-  return ordered.slice(0, maxSections);
+  return shaped;
 }
 
 function isClosingSection(heading: string): boolean {

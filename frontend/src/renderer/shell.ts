@@ -1049,8 +1049,50 @@ function renderNoteFeed(list: HTMLElement, items: Note[], showWorkspace: boolean
 
 let copyTimer: number | null = null;
 
+function openBullets(lines: string[]): string[] {
+  const sections: string[][] = [];
+  let current: string[] = [];
+  for (const line of lines) {
+    if (line.trim().startsWith('#') && current.length > 0) {
+      sections.push(current);
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length > 0) {
+    sections.push(current);
+  }
+  return sections.flatMap((group) => {
+    const heading = group[0]?.trim().startsWith('#') ? group[0] : null;
+    const body = (heading ? group.slice(1) : group).filter((line) => line.trim().length > 0);
+    const bullets: { text: string; children: string[] }[] = [];
+    for (const line of body) {
+      const indent = line.match(/^ */)?.[0].length ?? 0;
+      const text = line.trim().replace(/^(?:[•\-*]|\d+[.)])\s+/, '').trim();
+      if (!text) {
+        continue;
+      }
+      if (indent >= 2 && bullets.length > 0) {
+        bullets[bullets.length - 1].children.push(text);
+        continue;
+      }
+      bullets.push({ text, children: [] });
+    }
+    if (bullets.length !== 1 || bullets[0].children.length === 0) {
+      return group;
+    }
+    const shaped = heading ? [heading] : [];
+    for (const text of [bullets[0].text, ...bullets[0].children]) {
+      shaped.push(`• ${text}`);
+    }
+    return shaped;
+  });
+}
+
 function summaryPlainText(lines: string[]): string {
   const blocks: string[] = [];
+  lines = openBullets(lines);
   let numbered = false;
   let step = 0;
   for (const line of lines) {
@@ -1070,19 +1112,20 @@ function summaryPlainText(lines: string[]): string {
       continue;
     }
     const stepMatch = text.match(/^\d+[.)]\s+(.*)$/);
+    const bullet = text.match(/^[•\-*]\s+(.*)$/);
     const pad = '  '.repeat(depth);
-    if (stepMatch) {
+    if (depth > 0) {
       if (!numbered) {
         numbered = true;
         step = 0;
       }
       step += 1;
-      blocks.push(`${pad}${step}. ${stepMatch[1]}`);
+      const body = stepMatch ? stepMatch[1] : bullet ? bullet[1] : text;
+      blocks.push(`${pad}${step}. ${body}`);
       continue;
     }
     numbered = false;
-    const bullet = text.match(/^[•\-*]\s+(.*)$/);
-    blocks.push(`${pad}• ${bullet ? bullet[1] : text}`);
+    blocks.push(`• ${bullet ? bullet[1] : stepMatch ? stepMatch[1] : text}`);
   }
   return blocks.join('\n').trim();
 }
@@ -1473,6 +1516,7 @@ function copyWithSelection(text: string): void {
 }
 
 function renderSummary(lines: string[]): string {
+  lines = openBullets(lines);
   type Kind = 'h' | 'ul' | 'ol';
   const items = lines.map((line) => {
     const indent = line.match(/^ */)?.[0].length ?? 0;
@@ -1482,11 +1526,12 @@ function renderSummary(lines: string[]): string {
       return { kind: 'h' as Kind, depth: 0, text: text.replace(/^#+\s*/, '') };
     }
     const numbered = text.match(/^\d+[.)]\s+(.*)$/);
-    if (numbered) {
-      return { kind: 'ol' as Kind, depth, text: numbered[1] };
-    }
     const bullet = text.match(/^[•\-*]\s+(.*)$/);
-    return { kind: 'ul' as Kind, depth, text: bullet ? bullet[1] : text };
+    const body = numbered ? numbered[1] : bullet ? bullet[1] : text;
+    if (depth > 0) {
+      return { kind: 'ol' as Kind, depth, text: body };
+    }
+    return { kind: 'ul' as Kind, depth: 0, text: body };
   });
   let html = '';
   let list: 'ul' | 'ol' | null = null;
