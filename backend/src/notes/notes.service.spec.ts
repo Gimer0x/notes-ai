@@ -38,24 +38,24 @@ describe('note retry', () => {
     expect(result.errorCode).toBe('stt');
   });
 
-  it('summarizes a saved transcript when the failure was the summary', async () => {
-    const slices = { requeueFailedAudio: jest.fn() };
+  it('queues a saved transcript and returns before any summary provider call', async () => {
+    const slices = { requeueFailedAudio: jest.fn(), queueSummaryRetry: jest.fn(async () => undefined) };
     const summary = { summarize: jest.fn(async () => ({ bullets: ['# Done', '• Next step'] })) };
-    const ready = { ...failedNote('gpt'), status: 'ready' as const, error_code: null, summary_text: '# Done' };
+    const processing = { ...failedNote('gpt'), status: 'processing' as const, error_code: null };
+    let reads = 0;
     const db = {
       query: jest.fn(async (sql: string) => {
-        if (sql.includes('UPDATE notes')) {
-          return { rows: [ready] };
-        }
-        return { rows: [failedNote('gpt')] };
+        reads += 1;
+        return { rows: [reads === 1 ? failedNote('gpt') : processing] };
       }),
       transaction: jest.fn(),
     };
     const notes = new NotesService(db as never, {} as never, {} as never, summary as never, slices as never);
     const result = await notes.retry(USER, NOTE);
     expect(slices.requeueFailedAudio).not.toHaveBeenCalled();
-    expect(summary.summarize).toHaveBeenCalled();
-    expect(result.status).toBe('ready');
+    expect(slices.queueSummaryRetry).toHaveBeenCalledWith(USER, NOTE);
+    expect(summary.summarize).not.toHaveBeenCalled();
+    expect(result.status).toBe('processing');
   });
 
   it('rejects a note id that is not a uuid', async () => {

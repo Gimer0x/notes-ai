@@ -67,15 +67,8 @@ export function batchDone(batch: PreparedBatch): boolean {
   return batch.uploaded >= batch.pieces.length;
 }
 
-export type QueueManifest = {
-  noteId: string;
-  savedAt: number;
-  nextSliceSeq: number;
-  audioOffsetSec: number;
-  waiting: CaptureFiles[];
-};
-
 /** Unsent audio is kept only for the server's upload retry window, and never after quit. */
 export function manifestExpired(savedAt: number, now: number, windowSeconds: number): boolean {
-  return windowSeconds > 0 && now - savedAt > windowSeconds * 1000;
+  return !Number.isFinite(savedAt) || !Number.isFinite(windowSeconds) || windowSeconds <= 0 ||
+    now - savedAt >= windowSeconds * 1000;
 }

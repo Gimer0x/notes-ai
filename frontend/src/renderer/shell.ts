@@ -81,6 +81,7 @@ let view: View = { name: 'home' };
 let listenSeconds = 0;
 let heardSound = false;
 let listsReady = false;
+let captureFinalizing = false;
 let liveNoteId: string | null = null;
 let captureState: 'idle' | 'listening' | 'paused' = 'idle';
 let listenTimer: number | null = null;
@@ -178,6 +179,7 @@ function replaceNote(note: Note): void {
 }
 
 function apiMessage(error: unknown): string {
+  if (error instanceof Error && error.message === 'capture_finishing') return t.captureFinishing;
   const code = error instanceof Error ? error.message : '';
   if (code.includes('sign_in_required')) {
     return t.signInRequired;
@@ -353,8 +355,8 @@ function recordingWorkspace(): Workspace | null {
 function syncNewNote(): void {
   const button = $('openSpike') as HTMLButtonElement;
   const signedIn = Boolean(me);
-  button.disabled = !signedIn;
-  button.title = signedIn ? '' : t.signInRequired;
+  button.disabled = !signedIn || captureFinalizing;
+  button.title = captureFinalizing ? t.captureFinishing : signedIn ? '' : t.signInRequired;
 }
 
 async function reloadLists(): Promise<void> {
@@ -1560,10 +1562,12 @@ function renderNote(workspaceId: string, noteId: string): void {
   if (retry) {
     retry.textContent = t.retry;
     retry.addEventListener('click', () => {
+      (retry as HTMLButtonElement).disabled = true;
       void pith.notes.retry(note.id).then((updated) => {
         replaceNote(updated);
         render();
       }).catch((error: unknown) => {
+        (retry as HTMLButtonElement).disabled = false;
         setMainError(apiMessage(error));
       });
     });
@@ -2045,7 +2049,13 @@ async function init(): Promise<void> {
   } catch (error) {
     setMainError(apiMessage(error));
   }
+  const syncCaptureFinalizing = async (): Promise<void> => {
+    captureFinalizing = await pith.capture.finalizing();
+    syncNewNote();
+  };
+  await syncCaptureFinalizing();
   window.setInterval(() => {
+    void syncCaptureFinalizing().catch(() => undefined);
     if (!notes.some((note) => note.status === 'processing')) {
       return;
     }

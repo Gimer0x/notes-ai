@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { BillingService } from '../src/billing/billing.service';
+import { SlicesService } from '../src/slices/slices.service';
 import { DbService } from '../src/db/db.service';
 import { signUserToken } from '../src/auth/jwt';
 import { createTestApp, insertUser, resetDb } from './app';
@@ -298,8 +299,12 @@ describe('API contracts (e2e)', () => {
       .post(`/notes/${noteId}/retry`)
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
-    expect(retried.body.status).toBe('ready');
-    expect(retried.body.summaryText).toEqual(['Saved speech']);
+    expect(retried.body.status).toBe('processing');
+    // The timer is disabled in tests; run one durable job explicitly.
+    await (app.get(SlicesService) as any).maybeSummarize(noteId);
+    const finished = await http.get(`/notes/${noteId}`).set('Authorization', `Bearer ${token}`).expect(200);
+    expect(finished.body.status).toBe('ready');
+    expect(finished.body.summaryText).toEqual(['Saved speech']);
     await db.query(`UPDATE notes SET status = 'listening' WHERE id = $1`, [noteId]);
     const stopped = await http
       .post(`/notes/${noteId}/stop`)

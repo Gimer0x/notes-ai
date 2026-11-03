@@ -1201,6 +1201,7 @@ async function init(): Promise<void> {
   const pending = await pith.capture.pending().catch(() => null);
   if (pending?.noteId) {
     liveNoteId = pending.noteId;
+    noteBody().value = pending.typedNotes ?? '';
     uploadPaused = true;
     setError('upload_paused');
     applyGenerateEnabled();
@@ -1298,7 +1299,7 @@ async function init(): Promise<void> {
     });
   });
   $('generate').addEventListener('click', () => {
-    if (!listenedEnough()) {
+    if (busy || captureFinished || (!uploadPaused && !listenedEnough())) {
       return;
     }
     pauseTimer();

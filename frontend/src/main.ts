@@ -1,27 +1,17 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, systemPreferences } from 'electron';
-import { randomUUID } from 'crypto';
-import { copyFile, mkdir, readFile, rm, unlink, writeFile } from 'fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'fs/promises';
 import * as path from 'path';
 import { AuthService } from './auth/auth.service';
 import type { CaptureDevice, CaptureLevels } from './capture/capture.service';
 import { segmentTracks, splitLongSegments } from './capture/segment-tracks';
-import {
-  batchDone,
-  captureFiles,
-  currentPiece,
-  markPieceUploaded,
-  manifestExpired,
-  prepareBatch,
-  type CaptureFiles,
-  type PreparedBatch,
-  type QueueManifest,
-} from './capture/upload-queue';
+import { captureFiles, prepareBatch, type CaptureFiles, type PreparedBatch } from './capture/upload-queue';
+import { CaptureQueue } from './capture/capture-queue';
 import { requestScreenCaptureAccess } from './capture/helper-client';
 import { NativeCaptureService } from './capture/native-capture.service';
 import { backendUrl, captureSpikeKey, loadFrontendEnv, websiteUrl } from './env';
 import { resetSessionTrace, trace, writeSessionTrace, type TraceSegment } from './debug/session-trace';
 import { createAskApi } from './ask/ask-api';
-import { createNotesApi } from './notes/notes-api';
+import { createNotesApi, type NoteRecord } from './notes/notes-api';
 import { SpikeClient, SpikeRequestError } from './spike/spike-client';
 import en from './i18n/en.json';
 import es from './i18n/es.json';
@@ -99,7 +89,7 @@ async function loadAppConfig(): Promise<{
   uploadRetrySeconds: number;
   wavChunkSeconds: number;
 }> {
-  const response = await fetch(`${backendUrl().replace(/\/$/, '')}/config`);
+  const response = await fetch(`${backendUrl().replace(/\/$/, '')}/config`, { signal: AbortSignal.timeout(20_000) });
   if (!response.ok) {
     throw new Error('config_failed');
   }
@@ -266,12 +256,14 @@ function createWindow(): void {
 }
 
 handleIpc('shell:openSpike', async (_event, workspaceId: string, workspaceName: string) => {
+  assertCaptureAvailable();
   const user = await signedInUser();
+  assertCaptureAvailable();
   if (!user) {
     throw new Error('sign_in_required');
   }
   beginNote();
-  if (stopsInFlight === 0) {
+  if (finalizingNoteId === null) {
     try {
       await capture.cancel();
     } catch {
@@ -290,7 +282,7 @@ handleIpc('shell:openSpike', async (_event, workspaceId: string, workspaceName: 
 });
 handleIpc('shell:openNotepad', async (_event, keepProcessing?: boolean) => {
   beginNote();
-  if (!keepProcessing && stopsInFlight === 0) {
+  if (!keepProcessing && finalizingNoteId === null) {
     try {
       await capture.cancel();
     } catch {
@@ -418,6 +410,7 @@ handleIpc('capture:preview', async () => {
   return result;
 });
 handleIpc('capture:start', async () => {
+  assertCaptureAvailable();
   const result = await capture.start();
   rememberSession(result);
   return result;
@@ -440,12 +433,14 @@ handleIpc('permissions:microphone', async () => {
 handleIpc('capture:pause', () => capture.pause());
 handleIpc('capture:resume', () => capture.resume());
 handleIpc('capture:cancel', async () => {
+  assertCaptureAvailable();
   beginNote();
-  resetExport();
+  await resetExport();
   await capture.cancel();
 });
 handleIpc('capture:end', async () => {
-  resetExport();
+  assertCaptureAvailable();
+  await resetExport();
   const captured = await capture.stop();
   await unlink(captured.filePath).catch(() => undefined);
   if (captured.micFilePath) {
@@ -510,13 +505,20 @@ handleIpc(
     askApi.transcribe(dataBase64, mime, name),
 );
 let exportTimer: ReturnType<typeof setInterval> | null = null;
-let armedNoteId: string | null = null;
-let nextSliceSeq = 1;
-let audioOffsetSec = 0;
 let exportChain: Promise<void> = Promise.resolve();
-let stopsInFlight = 0;
-let waitingCaptures: CaptureFiles[] = [];
-let pendingBatch: PreparedBatch | null = null;
+let finalizingNoteId: string | null = null;
+const generations = new Map<string, Promise<NoteRecord>>();
+const uploadQueue = new CaptureQueue({
+  root: () => path.join(app.getPath('userData'), 'capture-queue'),
+  prepare: materialize,
+  upload: (noteId, piece) => notesApi.uploadSlice(
+    noteId, piece.seq, piece.source, piece.startSec, piece.endSec, piece.wav,
+  ),
+});
+
+function assertCaptureAvailable(): void {
+  if (finalizingNoteId) throw new Error('capture_finishing');
+}
 
 function stopExportTimer(): void {
   if (exportTimer) {
@@ -525,109 +527,14 @@ function stopExportTimer(): void {
   }
 }
 
-function queueRoot(): string {
-  return path.join(app.getPath('userData'), 'capture-queue');
-}
-
-function discardHeldAudio(): void {
-  const files = new Set<string>();
-  for (const captured of waitingCaptures) {
-    for (const file of captureFiles(captured)) {
-      files.add(file);
-    }
-  }
-  for (const file of pendingBatch?.files ?? []) {
-    files.add(file);
-  }
-  waitingCaptures = [];
-  pendingBatch = null;
-  for (const file of files) {
-    void unlink(file).catch(() => undefined);
-  }
-  void rm(queueRoot(), { recursive: true, force: true }).catch(() => undefined);
-}
-
-async function stageCapture(captured: CaptureFiles): Promise<CaptureFiles> {
-  const dir = path.join(queueRoot(), randomUUID());
-  await mkdir(dir, { recursive: true });
-  const staged: CaptureFiles = {
-    durationSeconds: captured.durationSeconds,
-    filePath: path.join(dir, 'mix.wav'),
-  };
-  await copyFile(captured.filePath, staged.filePath);
-  if (captured.micFilePath) {
-    staged.micFilePath = path.join(dir, 'mic.wav');
-    await copyFile(captured.micFilePath, staged.micFilePath);
-  }
-  if (captured.systemFilePath) {
-    staged.systemFilePath = path.join(dir, 'system.wav');
-    await copyFile(captured.systemFilePath, staged.systemFilePath);
-  }
-  for (const file of captureFiles(captured)) {
-    await unlink(file).catch(() => undefined);
-  }
-  return staged;
-}
-
-async function persistHeld(noteId: string): Promise<void> {
-  if (!hasHeldAudio()) {
-    await rm(queueRoot(), { recursive: true, force: true }).catch(() => undefined);
-    return;
-  }
-  await mkdir(queueRoot(), { recursive: true });
-  const pendingCapture: CaptureFiles | null = pendingBatch
-    ? {
-        durationSeconds: pendingBatch.durationSeconds,
-        filePath: pendingBatch.files.find((file) => file.endsWith('mix.wav')) ?? pendingBatch.files[0] ?? '',
-        micFilePath: pendingBatch.files.find((file) => file.endsWith('mic.wav')),
-        systemFilePath: pendingBatch.files.find((file) => file.endsWith('system.wav')),
-      }
-    : null;
-  const manifest: QueueManifest = {
-    noteId,
-    savedAt: Date.now(),
-    nextSliceSeq: pendingBatch?.pieces[0]?.seq ?? nextSliceSeq,
-    audioOffsetSec,
-    waiting: pendingCapture ? [pendingCapture, ...waitingCaptures] : waitingCaptures,
-  };
-  await writeFile(path.join(queueRoot(), 'manifest.json'), JSON.stringify(manifest));
-}
-
-async function restoreHeld(): Promise<void> {
-  try {
-    const raw = await readFile(path.join(queueRoot(), 'manifest.json'), 'utf8');
-    const manifest = JSON.parse(raw) as QueueManifest;
-    if (!manifest?.noteId || !Array.isArray(manifest.waiting)) {
-      return;
-    }
-    const config = await loadAppConfig().catch(() => null);
-    const windowSeconds = config?.uploadRetrySeconds ?? 0;
-    if (manifestExpired(manifest.savedAt, Date.now(), windowSeconds)) {
-      await rm(queueRoot(), { recursive: true, force: true }).catch(() => undefined);
-      return;
-    }
-    waitingCaptures = manifest.waiting;
-    nextSliceSeq = manifest.nextSliceSeq || 1;
-    audioOffsetSec = manifest.audioOffsetSec || 0;
-    armedNoteId = manifest.noteId;
-  } catch {
-    return;
-  }
-}
-
-function resetExport(): void {
+async function resetExport(noteId = uploadQueue.noteId): Promise<void> {
+  if (noteId !== uploadQueue.noteId) return;
   stopExportTimer();
-  armedNoteId = null;
-  nextSliceSeq = 1;
-  audioOffsetSec = 0;
-  discardHeldAudio();
+  await exportChain;
+  await uploadQueue.clear(noteId ?? undefined);
 }
 
-function hasHeldAudio(): boolean {
-  return waitingCaptures.length > 0 || pendingBatch !== null;
-}
-
-async function materialize(captured: CaptureFiles): Promise<PreparedBatch | null> {
+async function materialize(captured: CaptureFiles, nextSliceSeq: number, audioOffsetSec: number): Promise<PreparedBatch | null> {
   const mix = await readFile(captured.filePath);
   const mic = captured.micFilePath ? await readFile(captured.micFilePath) : null;
   const system = captured.systemFilePath ? await readFile(captured.systemFilePath) : null;
@@ -657,144 +564,134 @@ async function materialize(captured: CaptureFiles): Promise<PreparedBatch | null
   }
   const pieces = splitLongSegments(toUpload, chunkSeconds);
   if (pieces.length === 0) {
-    for (const file of files) {
-      await unlink(file).catch(() => undefined);
-    }
     return null;
   }
   return prepareBatch(nextSliceSeq, audioOffsetSec, durationSeconds, files, pieces);
 }
 
-async function drainUploads(noteId: string): Promise<void> {
-  while (waitingCaptures.length > 0 || pendingBatch) {
-    if (!pendingBatch) {
-      const next = waitingCaptures[0];
-      if (!next) {
-        return;
-      }
-      const prepared = await materialize(next);
-      waitingCaptures.shift();
-      if (!prepared) {
-        continue;
-      }
-      pendingBatch = prepared;
-    }
-    while (!batchDone(pendingBatch)) {
-      const piece = currentPiece(pendingBatch);
-      if (!piece) {
-        break;
-      }
-      await notesApi.uploadSlice(
-        noteId,
-        piece.seq,
-        piece.source,
-        piece.startSec,
-        piece.endSec,
-        piece.wav,
-      );
-      nextSliceSeq = markPieceUploaded(pendingBatch);
-    }
-    audioOffsetSec += pendingBatch.durationSeconds;
-    for (const file of pendingBatch.files) {
-      await unlink(file).catch(() => undefined);
-    }
-    logFrontend(`slices uploaded count=${pendingBatch.pieces.length} next=${nextSliceSeq}`);
-    pendingBatch = null;
-  }
-}
-
-async function enqueueCapture(noteId: string, captured: CaptureFiles): Promise<void> {
-  const staged = await stageCapture(captured);
-  waitingCaptures.push(staged);
-  await persistHeld(noteId);
-  try {
-    await drainUploads(noteId);
-  } finally {
-    await persistHeld(noteId);
-  }
-}
-
 async function exportLiveChunk(): Promise<void> {
-  const noteId = armedNoteId;
-  if (!noteId || capture.getState() === 'idle') {
-    return;
-  }
-  if (hasHeldAudio()) {
-    await drainUploads(noteId);
+  const noteId = uploadQueue.noteId;
+  if (!noteId || capture.getState() === 'idle') return;
+  if (uploadQueue.hasAudio) {
+    await uploadQueue.drain(noteId);
     return;
   }
   const captured = await capture.exportChunk();
-  if (!captured) {
-    return;
-  }
+  if (!captured) return;
   logFrontend(`export chunk sec=${captured.durationSeconds.toFixed(1)}`);
-  await enqueueCapture(noteId, captured);
+  await uploadQueue.enqueue(noteId, captured);
+  await uploadQueue.drain(noteId);
 }
 
-handleIpc('capture:arm', (_event, noteId: string) => {
-  resetExport();
-  armedNoteId = noteId;
+handleIpc('capture:arm', async (_event, noteId: string) => {
+  assertCaptureAvailable();
+  await resetExport();
+  const config = await loadAppConfig();
+  assertCaptureAvailable();
+  await uploadQueue.arm(noteId, config.uploadRetrySeconds);
   exportTimer = setInterval(() => {
     exportChain = exportChain.then(() => exportLiveChunk()).catch((error: unknown) => {
       logFrontend(`export ${error instanceof Error ? error.message : 'failed'}`);
     });
   }, 10_000);
 });
-handleIpc('capture:disarm', () => {
-  resetExport();
+handleIpc('capture:disarm', async () => {
+  assertCaptureAvailable();
+  await resetExport();
 });
 handleIpc('capture:getState', () => capture.getState());
-handleIpc('capture:pending', () => (armedNoteId && hasHeldAudio() ? { noteId: armedNoteId } : null));
-handleIpc('debug:stopAndTranscribe', async (_event, noteId: string, typedNotes: string) => {
-  stopsInFlight += 1;
-  try {
-  await exportChain;
+handleIpc('capture:finalizing', () => finalizingNoteId !== null);
+handleIpc('capture:pending', () => uploadQueue.noteId
+  ? { noteId: uploadQueue.noteId, typedNotes: uploadQueue.typedNotes }
+  : null);
+
+async function waitForNote(noteId: string, initial?: NoteRecord): Promise<NoteRecord> {
+  const started = Date.now();
+  let note = initial;
+  while (Date.now() - started < 30 * 60 * 1000) {
+    note = note ?? await notesApi.getNote(noteId);
+    if (note.status === 'failed') throw new Error(note.errorMessage || 'slice_failed');
+    if (note.status === 'ready') return note;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    note = undefined;
+  }
+  throw new Error('slice_timeout');
+}
+
+async function finishCapture(noteId: string, typedNotes: string): Promise<NoteRecord | undefined> {
+  if (uploadQueue.noteId && uploadQueue.noteId !== noteId) throw new Error('capture_changed');
   stopExportTimer();
-  let tailSeconds = 0;
-  try {
-    const captured = await capture.stop();
-    tailSeconds = Number(captured.durationSeconds) || 0;
-    waitingCaptures.push(await stageCapture(captured));
-    await persistHeld(noteId);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : '';
-    const benign = message === 'empty' || message === 'too_short';
-    if (!hasHeldAudio() && (!benign || nextSliceSeq === 1)) {
-      resetExport();
-      throw error;
+  await exportChain;
+  if (capture.getState() === 'idle') {
+    // Recovery and ambiguous HTTP responses must check persisted server state,
+    // never call stop on an already stopped native recorder.
+    const note = await notesApi.getNote(noteId);
+    if (note.status === 'processing' || note.status === 'ready' || note.status === 'failed') {
+      await resetExport(noteId);
+      return note;
+    }
+  }
+  if (uploadQueue.noteId !== noteId) throw new Error('capture_changed');
+  await uploadQueue.setTypedNotes(noteId, typedNotes);
+  if (capture.getState() !== 'idle') {
+    try {
+      await uploadQueue.enqueue(noteId, await capture.stop());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      const benign = message === 'empty' || message === 'too_short';
+      if (!benign || (!uploadQueue.hasAudio && uploadQueue.nextSliceSeq === 1)) {
+        if (benign) await resetExport(noteId);
+        throw error;
+      }
     }
   }
   try {
-    await drainUploads(noteId);
+    await uploadQueue.drain(noteId);
   } catch (error) {
     logFrontend(`upload ${error instanceof Error ? error.message : 'failed'}`);
     throw new Error('upload_paused');
   }
-  const durationSeconds = audioOffsetSec;
+  const durationSeconds = uploadQueue.durationSeconds;
   const config = await loadAppConfig();
   if (!Number.isFinite(durationSeconds) || durationSeconds < config.minListenSeconds) {
-    resetExport();
+    await resetExport(noteId);
     throw new Error('too_short');
   }
-  const finalSeq = nextSliceSeq - 1;
-  logFrontend(`capture stopped; finalSeq=${finalSeq} sec=${durationSeconds.toFixed(1)} tail=${tailSeconds.toFixed(1)}`);
-  await notesApi.sealNote(noteId, finalSeq, durationSeconds, typedNotes ?? '');
-  resetExport();
-  const started = Date.now();
-  while (Date.now() - started < 30 * 60 * 1000) {
-    const note = await notesApi.getNote(noteId);
-    if (note.status === 'ready' || note.status === 'failed') {
-      if (note.status === 'failed') {
-        throw new Error(note.errorMessage || 'slice_failed');
-      }
-      return note;
+  const finalSeq = uploadQueue.nextSliceSeq - 1;
+  logFrontend(`capture stopped; finalSeq=${finalSeq} sec=${durationSeconds.toFixed(1)}`);
+  let accepted: NoteRecord | undefined;
+  try {
+    await notesApi.sealNote(noteId, finalSeq, durationSeconds, typedNotes);
+  } catch (error) {
+    // The server may have committed before the response was lost. Keep local
+    // progress if it cannot confirm acceptance, so Generate can safely retry.
+    accepted = await notesApi.getNote(noteId).catch(() => undefined);
+    if (!accepted || (accepted.status !== 'processing' && accepted.status !== 'ready' && accepted.status !== 'failed')) {
+      throw error;
     }
-    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
-  throw new Error('slice_timeout');
-  } finally {
-    stopsInFlight -= 1;
-  }
+  await resetExport(noteId);
+  return accepted;
+}
+
+handleIpc('debug:stopAndTranscribe', (_event, noteId: string, typedNotes: string) => {
+  const existing = generations.get(noteId);
+  if (existing) return existing;
+  assertCaptureAvailable();
+  finalizingNoteId = noteId;
+  const generation = (async () => {
+    let accepted: NoteRecord | undefined;
+    try {
+      accepted = await finishCapture(noteId, typedNotes ?? '');
+    } finally {
+      if (finalizingNoteId === noteId) finalizingNoteId = null;
+    }
+    // No capture or queue mutations after releasing the gate. Another note may
+    // start while this one is being summarized on the server.
+    return waitForNote(noteId, accepted);
+  })().finally(() => { generations.delete(noteId); });
+  generations.set(noteId, generation);
+  return generation;
 });
 handleIpc('debug:hasLastMix', () => Boolean(lastMix && lastMix.length > 0));
 handleIpc('debug:resend', async () => {
@@ -889,7 +786,7 @@ function installAppMenu(): void {
 }
 
 app.whenReady().then(async () => {
-  await restoreHeld();
+  await uploadQueue.restore();
   installAppMenu();
   if (process.platform === 'darwin') {
     const dockIcon = nativeImage.createFromPath(path.join(__dirname, '..', 'build', 'dock-icon.png'));
@@ -916,7 +813,8 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  resetExport();
+  stopExportTimer();
+  uploadQueue.discardOnQuit();
   capture.dispose();
   lastMix = null;
   lastMic = null;

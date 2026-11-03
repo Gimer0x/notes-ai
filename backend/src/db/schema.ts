@@ -98,6 +98,7 @@ export const SCHEMA_STATEMENTS: string[] = [
   `ALTER TABLE note_slices ADD COLUMN IF NOT EXISTS retry_after TIMESTAMPTZ`,
   `ALTER TABLE notes ADD COLUMN IF NOT EXISTS summary_lease TEXT`,
   `ALTER TABLE notes ADD COLUMN IF NOT EXISTS summary_lease_until TIMESTAMPTZ`,
+  `ALTER TABLE notes ADD COLUMN IF NOT EXISTS summary_from_transcript BOOLEAN NOT NULL DEFAULT false`,
   `ALTER TABLE notes ADD COLUMN IF NOT EXISTS summary_attempts INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE notes ADD COLUMN IF NOT EXISTS transcript_complete BOOLEAN NOT NULL DEFAULT true`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_cancel_error TEXT`,

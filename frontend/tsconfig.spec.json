@@ -5,6 +5,8 @@
     "rootDir": "./src",
     "noEmit": false
   },
-  "include": ["src/capture/upload-queue.ts", "src/capture/upload-queue.spec.ts"],
+  "include": [
+    "src/capture/*.spec.ts"
+  ],
   "exclude": []
 }

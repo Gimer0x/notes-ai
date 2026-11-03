@@ -10,6 +10,6 @@ echo "== website =="
 (cd "$root/website" && npm test && npm run typecheck)
 
 echo "== frontend =="
-(cd "$root/frontend" && npm run typecheck)
+(cd "$root/frontend" && npm test && npm run typecheck)
 
 echo "All tests passed."

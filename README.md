@@ -102,6 +102,18 @@ If you already run Homebrew Postgres, create a `pith` database and set `DATABASE
 docker compose exec postgres psql -U pith -c 'SELECT code, max_listening_seconds_per_window, max_notes_per_window FROM plans;'
 ```
 
+## Recording recovery and background processing
+
+Seal acknowledges the saved processing job before generating a summary. Retry also queues its work; clients read the note status until it is ready or failed. PostgreSQL holds the jobs and summary leases. No extra queue service is needed.
+
+`TRANSCRIPTION_CONCURRENCY` and `SUMMARY_CONCURRENCY` independently limit active provider calls in one backend process. Both default to `2`; valid values are integers from `1` to `100`. These defaults are conservative, not a capacity claim for 100 simultaneous meetings. Tune against measured provider latency, provider account limits, and queue age on the deployment host. The database integration test processes 100 users × 30 slices with simulated providers and verifies completion, bounds, and billing; it does not benchmark real OpenAI calls or native capture.
+
+The API applies the additive `summary_from_transcript` column on startup. Deploy/restart the backend before the updated desktop app. Use one backend instance with persistent storage for `SLICE_DIR` (or `backend/data/slices`).
+
+The desktop keeps an atomic recovery manifest with a saved expiry, exact upload bytes/sequences, acknowledged progress, and typed notes submitted with Generate. Restart recovery uses that deadline even while offline. Normal quit still deletes retained audio. New note waits for the previous recording's upload/seal acknowledgement; summaries may finish while another note records.
+
+Before release, verify on a Mac: interrupt an upload and retry Generate; force a crash during upload and reopen within the retry window; go Home during Generate and start another note after upload acceptance; quit and confirm retained audio is discarded. A live staging run with real provider latency and limits remains necessary before claiming support for 100 simultaneous recordings.
+
 ## Run — website (Step 8–10)
 
 ```bash
@@ -185,14 +197,14 @@ From the repo root:
 npm test
 ```
 
-That runs `scripts/test-all.sh`: backend tests + typecheck, website tests + typecheck, frontend typecheck. Postgres must be running (`cd backend && docker compose up -d`). The suite uses a separate database `pith_test` (created on first run if missing). It does **not** call Google, Stripe Checkout, OpenAI, or capture hardware. Dummy values live in `backend/.env.test` (safe to commit).
+That runs `scripts/test-all.sh`: backend tests + typecheck, website tests + typecheck, frontend tests + typecheck. Postgres must be running (`cd backend && docker compose up -d`). The suite uses a separate database `pith_test` (created on first run if missing). It does **not** call Google, Stripe Checkout, OpenAI, or capture hardware. Dummy values live in `backend/.env.test` (safe to commit).
 
 You can still run a single project:
 
 ```bash
 cd backend && npm test && npm run typecheck
 cd website && npm test && npm run typecheck
-cd frontend && npm run typecheck
+cd frontend && npm test && npm run typecheck
 ```
 
 GitHub Actions (`.github/workflows/test.yml`) runs the same root `npm test` on every **push** and **pull request**. There is no git hook that blocks a push.

@@ -177,8 +177,8 @@ export class NotesService {
     if (!transcript) {
       throw new ConflictException('record_again');
     }
-    const language = note.language === 'es' ? 'es' : 'en';
-    return this.writeSummary(userId, noteId, transcript, language);
+    await this.slices.queueSummaryRetry(userId, noteId);
+    return this.get(userId, noteId);
   }
 
   private async writeSummary(

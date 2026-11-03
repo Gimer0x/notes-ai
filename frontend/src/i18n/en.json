@@ -36,6 +36,7 @@
   "errorNoLastMix": "There is no mix to resend. Record again, then Stop. Restarting the app discards the last mix.",
   "errorSpike": "Transcribe failed",
   "errorGeneric": "Something went wrong",
+  "captureFinishing": "Finishing the previous recording. You can start a new note once its upload is accepted.",
   "uploadPaused": "Upload paused. This recording is still on this Mac. Press Generate to try again.",
   "backendUnavailable": "Pith can't reach the server right now. Your place on this Mac is unchanged.",
   "micOnly": "Microphone only. Other participants may be missing.",

@@ -41,7 +41,7 @@ describe('upload queue', () => {
     const savedAt = 1_000_000;
     assert.equal(manifestExpired(savedAt, savedAt + 60_000, 600), false);
     assert.equal(manifestExpired(savedAt, savedAt + 601_000, 600), true);
-    assert.equal(manifestExpired(savedAt, savedAt + 999_000, 0), false);
+    assert.equal(manifestExpired(savedAt, savedAt + 999_000, 0), true);
   });
 
   it('lists every capture file that must stay until the batch finishes', () => {

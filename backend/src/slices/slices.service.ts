@@ -18,7 +18,10 @@ import { SummaryService } from '../summary/summary.service';
 import { OpenAiTranscribeService } from '../transcribe/openai-transcribe.service';
 import { sliceFailureIsFinal, sliceRetryDelaySeconds } from './slice-retry';
 
-const MAX_IN_FLIGHT = 2;
+function concurrency(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isInteger(value) && value > 0 && value <= 100 ? value : fallback;
+}
 const MAX_ATTEMPTS = 3;
 
 const CLAIM_SQL = `SELECT s.id, s.note_id, s.user_id, s.seq, s.status, s.source, s.start_sec, s.end_sec,
@@ -72,6 +75,10 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | null = null;
   private inFlight = 0;
   private ticking = false;
+  private stopped = false;
+  private readonly transcriptionConcurrency = concurrency('TRANSCRIPTION_CONCURRENCY', 2);
+  private readonly summaryConcurrency = concurrency('SUMMARY_CONCURRENCY', 2);
+  private readonly summarizing = new Set<string>();
 
   constructor(
     private readonly db: DbService,
@@ -93,6 +100,7 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy(): void {
+    this.stopped = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -197,30 +205,52 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
 
   /** Re-queue failed slices that still have audio. Returns false when nothing can be retried. */
   async requeueFailedAudio(userId: string, noteId: string): Promise<boolean> {
-    const updated = await this.db.query<{ id: string }>(
-      `UPDATE note_slices
-       SET status = 'queued', attempts = 0, locked_at = NULL, finished_at = NULL
-       WHERE note_id = $1 AND user_id = $2 AND status = 'failed' AND wav_path IS NOT NULL
+    const resumed = await this.db.transaction(async (query) => {
+      // Serialize Retry with other retries before changing any slice state.
+      const note = await query<{ status: string }>(
+        `SELECT status FROM notes WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+        [noteId, userId],
+      );
+      if (note.rows[0]?.status !== 'failed') {
+        return false;
+      }
+      const updated = await query(
+        `UPDATE note_slices
+         SET status = 'queued', attempts = 0, locked_at = NULL, finished_at = NULL, retry_after = NULL
+         WHERE note_id = $1 AND user_id = $2 AND status = 'failed' AND wav_path IS NOT NULL
+         RETURNING id`,
+        [noteId, userId],
+      );
+      if (updated.rows.length === 0) {
+        return false;
+      }
+      await query(
+        `UPDATE notes
+         SET status = 'processing', summary_running = false, summary_from_transcript = false,
+             summary_lease = NULL, summary_lease_until = NULL,
+             error_code = NULL, error_message = NULL, updated_at = now()
+         WHERE id = $1 AND user_id = $2`,
+        [noteId, userId],
+      );
+      return true;
+    });
+    return resumed;
+  }
+
+  /** Persist summary-only retries; the bounded worker owns provider calls and leases. */
+  async queueSummaryRetry(userId: string, noteId: string): Promise<void> {
+    const result = await this.db.query(
+      `UPDATE notes
+       SET status = 'processing', summary_from_transcript = true,
+           summary_running = false, summary_lease = NULL, summary_lease_until = NULL,
+           error_code = NULL, error_message = NULL, updated_at = now()
+       WHERE id = $1 AND user_id = $2 AND status = 'failed'
        RETURNING id`,
       [noteId, userId],
     );
-    if (updated.rows.length === 0) {
-      return false;
+    if (!result.rows[0]) {
+      throw new ConflictException('not_failed');
     }
-    await this.db.query(
-      `UPDATE notes
-       SET status = 'processing',
-           summary_running = false,
-           error_code = NULL,
-           error_message = NULL,
-           updated_at = now()
-       WHERE id = $1 AND user_id = $2 AND status = 'failed'`,
-      [noteId, userId],
-    );
-    void this.tick().catch((error: unknown) => {
-      this.logger.warn(error instanceof Error ? error.message : 'slice_tick_failed');
-    });
-    return true;
   }
 
   async progress(userId: string, noteId: string): Promise<SliceProgress> {
@@ -263,7 +293,7 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
     }
     await this.db.transaction(async (query) => {
       const current = await query<{ status: string; final_seq: number | null }>(
-        `SELECT status, final_seq FROM notes WHERE id = $1 AND user_id = $2`,
+        `SELECT status, final_seq FROM notes WHERE id = $1 AND user_id = $2 FOR UPDATE`,
         [input.noteId, input.userId],
       );
       const note = current.rows[0];
@@ -318,11 +348,11 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
       }
       await this.billing.recordListen(input.userId, input.noteId, input.durationSeconds, query);
     });
-    await this.maybeSummarize(input.noteId);
+    // The committed processing state is the durable job. Acknowledge before provider work.
   }
 
   private async tick(): Promise<void> {
-    if (this.ticking) {
+    if (this.ticking || this.stopped) {
       return;
     }
     this.ticking = true;
@@ -331,7 +361,7 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
       await this.purgeFailedAudio();
       await this.expireMissingSlices();
       await this.resumeSummaries();
-      while (this.inFlight < MAX_IN_FLIGHT) {
+      while (this.inFlight < this.transcriptionConcurrency) {
         const job = await this.claim();
         if (!job) {
           break;
@@ -343,9 +373,8 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
           })
           .finally(() => {
             this.inFlight -= 1;
-            void this.maybeSummarize(job.note_id).catch((error: unknown) => {
-              this.logger.warn(error instanceof Error ? error.message : 'summary_failed');
-            });
+            // Refill transcription slots promptly; summaries have their own capacity.
+            void this.tick();
           });
       }
     } catch (error) {
@@ -422,41 +451,64 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
       typed_notes: string | null;
       status: string;
       summary_running: boolean;
+      summary_from_transcript: boolean;
+      transcript_text: string | null;
+      transcript_turns: string | null;
+      transcript_complete: boolean;
+      language: 'en' | 'es' | null;
     }>(
-      `SELECT final_seq, typed_notes, status, summary_running
+      `SELECT final_seq, typed_notes, status, summary_running, summary_from_transcript,
+              transcript_text, transcript_turns, transcript_complete, language
        FROM notes WHERE id = $1`,
       [noteId],
     );
     const row = note.rows[0];
-    if (!row || row.status !== 'processing' || row.summary_running || row.final_seq == null) {
+    if (!row || row.status !== 'processing' || row.summary_running) {
       return;
     }
-    const slices = await this.db.query<{
-      seq: number;
-      status: string;
-      transcript: string | null;
-      language: 'en' | 'es' | null;
-      source: SliceSource;
-      start_sec: number;
-      end_sec: number;
-      wav_path: string | null;
-    }>(
-      `SELECT seq, status, transcript, language, source, start_sec, end_sec, wav_path
-       FROM note_slices
-       WHERE note_id = $1 AND seq <= $2
-       ORDER BY seq`,
-      [noteId, row.final_seq],
-    );
-    if (slices.rows.some((slice) => slice.status === 'queued' || slice.status === 'running')) {
-      return;
-    }
-    const failed = slices.rows.filter((slice) => slice.status === 'failed');
-    if (failed.length > 0) {
-      await this.finishFailed(noteId, slices.rows, row.typed_notes);
-      return;
-    }
-    if (slices.rows.length !== row.final_seq) {
-      return;
+    let transcript = row.transcript_text ?? '';
+    let turnsJson = row.transcript_turns;
+    let language = row.language ?? 'en';
+    let complete = row.transcript_complete;
+    if (!row.summary_from_transcript) {
+      if (row.final_seq == null) {
+        return;
+      }
+      const slices = await this.db.query<{
+        seq: number;
+        status: string;
+        transcript: string | null;
+        language: 'en' | 'es' | null;
+        source: SliceSource;
+        start_sec: number;
+        end_sec: number;
+        wav_path: string | null;
+      }>(
+        `SELECT seq, status, transcript, language, source, start_sec, end_sec, wav_path
+         FROM note_slices WHERE note_id = $1 AND seq <= $2 ORDER BY seq`,
+        [noteId, row.final_seq],
+      );
+      if (slices.rows.some((slice) => slice.status === 'queued' || slice.status === 'running')) {
+        return;
+      }
+      if (slices.rows.some((slice) => slice.status === 'failed')) {
+        await this.finishFailed(noteId, slices.rows, row.typed_notes);
+        return;
+      }
+      if (slices.rows.length !== row.final_seq) {
+        return;
+      }
+      const turns = slices.rows
+        .map((slice) => ({
+          source: slice.source, startSec: slice.start_sec, endSec: slice.end_sec,
+          text: (slice.transcript ?? '').trim(),
+        }))
+        .filter((turn) => turn.text.length > 0);
+      const spoken = turns.map((turn) => turn.text).join('\n\n');
+      transcript = [row.typed_notes?.trim() ?? '', spoken].filter(Boolean).join('\n\n');
+      turnsJson = turns.length > 0 ? JSON.stringify(turns) : null;
+      language = slices.rows.find((slice) => slice.language)?.language ?? 'en';
+      complete = true;
     }
     const lease = randomUUID();
     const claimed = await this.db.query(
@@ -492,27 +544,16 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
         });
     }, 30_000);
     beat.unref?.();
-    const turns = slices.rows
-      .map((slice) => ({
-        source: slice.source,
-        startSec: slice.start_sec,
-        endSec: slice.end_sec,
-        text: (slice.transcript ?? '').trim(),
-      }))
-      .filter((turn) => turn.text.length > 0);
-    const spoken = turns.map((turn) => turn.text).join('\n\n');
-    const transcript = [row.typed_notes?.trim() ?? '', spoken].filter((part) => part.length > 0).join('\n\n');
-    const language = slices.rows.find((slice) => slice.language)?.language ?? 'en';
     try {
       await this.db.query(
         `UPDATE notes
          SET transcript_text = $2,
              transcript_turns = $3,
              language = $4,
-             transcript_complete = true,
+             transcript_complete = $6,
              updated_at = now()
          WHERE id = $1 AND summary_lease = $5`,
-        [noteId, transcript || null, turns.length > 0 ? JSON.stringify(turns) : null, language, lease],
+        [noteId, transcript || null, turnsJson, language, lease, complete],
       );
       if (!transcript) {
         await this.db.query(
@@ -538,7 +579,6 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
              summary_lease_until = NULL,
              error_code = NULL,
              error_message = NULL,
-             transcript_complete = true,
              updated_at = now()
          WHERE id = $1 AND summary_lease = $3`,
         [noteId, summary.bullets.join('\n'), lease],
@@ -624,6 +664,8 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
            summary_lease_until = NULL,
            updated_at = now()
        WHERE status = 'processing'
+         AND summary_from_transcript = false
+         AND summary_running = false
          AND final_seq IS NOT NULL
          AND final_seq > 0
          AND updated_at < now() - interval '30 minutes'
@@ -639,14 +681,42 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async resumeSummaries(): Promise<void> {
+    const available = this.summaryConcurrency - this.summarizing.size;
+    if (available <= 0) {
+      return;
+    }
     const notes = await this.db.query<{ id: string }>(
-      `SELECT id FROM notes
-       WHERE status = 'processing' AND summary_running = false
-       ORDER BY updated_at
-       LIMIT 5`,
+      `SELECT n.id FROM notes n
+       WHERE n.status = 'processing' AND n.summary_running = false
+         AND NOT (n.id = ANY($1::uuid[]))
+         AND (n.summary_from_transcript = true OR (
+           n.final_seq IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM note_slices s
+             WHERE s.note_id = n.id AND s.seq <= n.final_seq AND s.status IN ('queued', 'running')
+           )
+           AND (EXISTS (
+             SELECT 1 FROM note_slices s WHERE s.note_id = n.id AND s.status = 'failed'
+           ) OR (SELECT count(*) FROM note_slices s
+                 WHERE s.note_id = n.id AND s.seq <= n.final_seq) = n.final_seq)
+         ))
+       ORDER BY n.updated_at
+       LIMIT $2`,
+      [[...this.summarizing], available],
     );
     for (const note of notes.rows) {
-      await this.maybeSummarize(note.id);
+      if (this.summarizing.has(note.id) || this.summarizing.size >= this.summaryConcurrency) {
+        continue;
+      }
+      this.summarizing.add(note.id);
+      // Do not await provider work inside the scheduler or a request handler.
+      void this.maybeSummarize(note.id)
+        .catch((error: unknown) => {
+          this.logger.warn(error instanceof Error ? error.message : 'summary_failed');
+        })
+        .finally(() => {
+          this.summarizing.delete(note.id);
+        });
     }
   }
 
