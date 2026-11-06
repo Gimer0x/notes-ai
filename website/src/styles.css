@@ -466,8 +466,24 @@ select {
   margin: 0 0 16px;
 }
 
-.legal p {
-  line-height: 1.5;
+.legal h2 {
+  font-size: 1.15rem;
+  margin: 28px 0 8px;
+}
+
+.legal p,
+.legal li {
+  line-height: 1.55;
+}
+
+.legal-updated {
+  color: var(--muted);
+  margin-top: 0;
+}
+
+.legal ul {
+  margin: 8px 0 16px;
+  padding-left: 1.2rem;
 }
 
 .welcome {
