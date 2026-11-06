@@ -13,7 +13,7 @@ It does **not** join as a bot, does **not** capture screen or video, and does **
 
 When the user **stops** listening (after 30 seconds of audio), audio is **not kept**. OpenAI **GPT STT** then **GPT** numbered bullets; store the summary only. Meetings and summaries are **English or Spanish**; bullets are written in the **same language as the meeting**.
 
-Paid access is a real **Stripe Checkout** subscription (**$7.99/month** or **$87.99/year**). **Currency is always USD**. Checkout runs in the **system browser** and returns to the **website**. Free users are not blocked; they are capped. Yearly subscribers still get **100 hours per month**, not 100 hours per year.
+Paid access is a real **Stripe Checkout** subscription (**$7.99/month** or **$87.99/year**). **Currency is always USD**. Checkout runs in the **system browser** and returns to the **website**. Free users are not blocked; they are capped. Yearly subscribers still get **40 hours per month**, not 40 hours per year.
 
 ## Constraints (always)
 
@@ -36,11 +36,11 @@ Paid access is a real **Stripe Checkout** subscription (**$7.99/month** or **$87
 
 **Pay on the website, not inside the Mac app.**
 
-| Surface | Does | Does not |
-| --- | --- | --- |
-| **Website** | Landing, download Mac app, Google sign-in / sign-out, pricing (monthly vs yearly), start Checkout, success/cancel pages, account (plan + remaining quota) | Microphone, notes, workspaces |
-| **Electron** | Sign-in, workspaces, listening (mic + system audio), notes, remaining time, **Upgrade** button | Host Checkout UI; record screen/video |
-| **Upgrade in Electron** | Opens the system browser to the website pricing/Checkout flow | In-app payment form |
+| Surface                 | Does                                                                                                                                                      | Does not                              |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| **Website**             | Landing, download Mac app, Google sign-in / sign-out, pricing (monthly vs yearly), start Checkout, success/cancel pages, account (plan + remaining quota) | Microphone, notes, workspaces         |
+| **Electron**            | Sign-in, workspaces, listening (mic + system audio), notes, remaining time, **Upgrade** button                                                            | Host Checkout UI; record screen/video |
+| **Upgrade in Electron** | Opens the system browser to the website pricing/Checkout flow                                                                                             | In-app payment form                   |
 
 After Stripe Checkout, the user lands on the **website** account/success page. They can close the Checkout tab. A **webhook** marks the user `paid`. Electron **refetches** plan/quota (same Google user). Sessions do not need to be shared between website and Electron — only the same Google account.
 
@@ -52,18 +52,18 @@ This is the right split: Stripe is built for the browser; the website can conver
 
 1. Public **website**: product pitch, **download** the Mac app, Sign in / Sign out with Google.
 2. First Google login (website or Electron) creates the user with plan **`free`**. Stripe is not required to use the app.
-3. Product plans: **`free`** and **`paid`**. Paid is sold as two Stripe Prices:
+3. Product plans sold today: **`free`** and **`paid`**. A **`plus`** row is reserved for a higher price above 40 hours and is not offered in Checkout until its Stripe Price ids are set. Paid is sold as two Stripe Prices:
    - **$7.99 USD / month**
    - **$87.99 USD / year**
-   User picks on the website pricing page. Store Price ids in the `plans` row / env — **do not hard-code dollar amounts** in the client. Amounts live in the Stripe Dashboard. Checkout and Prices are **USD only**.
+     User picks on the website pricing page. Store Price ids in the `plans` row / env — **do not hard-code dollar amounts** in the client. Amounts live in the Stripe Dashboard. Checkout and Prices are **USD only**.
 4. To become `paid`, complete **Stripe Checkout** (subscription). A **webhook** (not the client) sets `plan_code = paid`, `stripe_customer_id`, `stripe_subscription_id`, and period dates.
 5. Limits live in the **`plans` table** (admin changes them in SQL; no admin UI).
 6. **Free (seed):** 60 minutes listening per **quota window**, 30 minutes max **per note**, **10 notes** per window.
-7. **Paid (seed):** 100 hours listening per **quota window**, unlimited notes, **no** per-note cap.
+7. **Paid (seed):** 40 hours listening per **quota window**, unlimited notes, **no** per-note cap.
 8. **Quota windows:**
    - **Free:** rolling **30 days from signup** (`users.created_at`). When a window ends, start the next 30 days and reset usage. Not a UTC calendar month.
    - **Paid monthly:** Stripe subscription `current_period_start` → `current_period_end` (the billing cycle).
-   - **Paid yearly:** the customer pays once a year, but the allowance is still **100 hours every month** (same as monthly paid). Do **not** use a single 100-hour yearly bucket. Reset paid usage every month on the **subscription anniversary day** (same day-of-month as `current_period_start`), while the subscription is active.
+   - **Paid yearly:** the customer pays once a year, but the allowance is still **40 hours every month** (same as monthly paid). Do **not** use a single 40-hour yearly bucket. Reset paid usage every month on the **subscription anniversary day** (same day-of-month as `current_period_start`), while the subscription is active.
 9. Show **remaining listening time** on the website account page, Electron home, and during a session (plus remaining notes on free).
 10. Enforce quotas before New note and before OpenAI. Auto-stop at per-note max (free only) or when remaining minutes hit 0.
 11. Checkout success URL: website page (account / “you’re paid — you can close this tab”). Cancel URL: website pricing. Test mode is fine in development.
@@ -103,29 +103,29 @@ This is the right split: Stripe is built for the browser; the website can conver
 
 ### Note statuses (required)
 
-| Status | Meaning | Delete / cancel |
-| --- | --- | --- |
-| `listening` | Mic + system audio on (or mic-only fallback) | Cancel after confirm (discard) |
-| `paused` | Both sources paused, buffer kept | Cancel after confirm (discard) |
-| `processing` | STT + GPT running | **No** |
-| `ready` | Summary saved | Yes, after confirm |
-| `failed` | `error_code`: `upload` \| `stt` \| `gpt` | Yes, after confirm. **Retry** if audio (STT) or transcript (GPT) still exists |
+| Status       | Meaning                                      | Delete / cancel                                                               |
+| ------------ | -------------------------------------------- | ----------------------------------------------------------------------------- |
+| `listening`  | Mic + system audio on (or mic-only fallback) | Cancel after confirm (discard)                                                |
+| `paused`     | Both sources paused, buffer kept             | Cancel after confirm (discard)                                                |
+| `processing` | STT + GPT running                            | **No**                                                                        |
+| `ready`      | Summary saved                                | Yes, after confirm                                                            |
+| `failed`     | `error_code`: `upload` \| `stt` \| `gpt`     | Yes, after confirm. **Retry** if audio (STT) or transcript (GPT) still exists |
 
 ## Tech stack (decided)
 
-| Piece | Choice | Why |
-| --- | --- | --- |
-| Public site | **`website/`** React + TypeScript | Download, auth, pricing, Checkout return, account |
-| Desktop | **`frontend/`** Electron + React + TypeScript + **native macOS capture** | Mix mic + system audio; notepad |
-| Backend | **`backend/`** NestJS + TypeScript | Auth, CRUD, jobs, Stripe, OpenAI |
-| Database | **PostgreSQL** | Users, plans, workspaces, notes, usage |
-| Jobs | Postgres-backed jobs first | Stop returns immediately |
-| Auth | Google OAuth 2.0 (website + Electron; same user by Google subject) | Gmail login only |
-| STT | OpenAI transcription (e.g. `gpt-4o-mini-transcribe`) | GPT family |
-| Summary | OpenAI GPT; numbered-bullet prompt | GPT only |
-| Payments | Stripe Checkout (hosted) + webhook | $7.99/mo and $87.99/yr |
-| Installer | electron-builder mac ships; win target configured, not built | Future `.exe` |
-| Secrets | Each project `.env` | Never commit real values |
+| Piece       | Choice                                                                   | Why                                               |
+| ----------- | ------------------------------------------------------------------------ | ------------------------------------------------- |
+| Public site | **`website/`** React + TypeScript                                        | Download, auth, pricing, Checkout return, account |
+| Desktop     | **`frontend/`** Electron + React + TypeScript + **native macOS capture** | Mix mic + system audio; notepad                   |
+| Backend     | **`backend/`** NestJS + TypeScript                                       | Auth, CRUD, jobs, Stripe, OpenAI                  |
+| Database    | **PostgreSQL**                                                           | Users, plans, workspaces, notes, usage            |
+| Jobs        | Postgres-backed jobs first                                               | Stop returns immediately                          |
+| Auth        | Google OAuth 2.0 (website + Electron; same user by Google subject)       | Gmail login only                                  |
+| STT         | OpenAI transcription (e.g. `gpt-4o-mini-transcribe`)                     | GPT family                                        |
+| Summary     | OpenAI GPT; numbered-bullet prompt                                       | GPT only                                          |
+| Payments    | Stripe Checkout (hosted) + webhook                                       | $7.99/mo and $87.99/yr                            |
+| Installer   | electron-builder mac ships; win target configured, not built             | Future `.exe`                                     |
+| Secrets     | Each project `.env`                                                      | Never commit real values                          |
 
 Do not add: meeting plugins, calendar sync, local Whisper, Redis/Kubernetes unless a step fails without them, Nx/Turborepo, Checkout inside Electron, virtual audio drivers, screen/video recording, live captions, speaker diarization.
 
@@ -133,10 +133,10 @@ Do not add: meeting plugins, calendar sync, local Whisper, Redis/Kubernetes unle
 
 Keep this shape. Table names may differ; relationships must not.
 
-### `plans` (admin-configured; seed two rows)
+### `plans` (admin-configured; seed `free`, `paid`, and reserved `plus`)
 
-- `code`: `free` \| `paid`
-- `max_listening_seconds_per_window` (free: `3600`; paid: `360000` = 100 hours)
+- `code`: `free` \| `paid` \| `plus` (`plus` is reserved and not sold)
+- `max_listening_seconds_per_window` (free: `3600`; paid: `144000` = 40 hours; plus starts at the same 40 hours until its higher cap is set in SQL)
 - `max_seconds_per_note` (free: `1800`; paid: `null`)
 - `max_notes_per_window` (free: `10`; paid: `0` = unlimited)
 - `stripe_price_id_monthly` (null on free; Stripe Price for $7.99/mo)
@@ -155,8 +155,14 @@ Keep this shape. Table names may differ; relationships must not.
 - `stripe_customer_id`, `stripe_subscription_id` (nullable)
 - `stripe_price_id` (which price they subscribed to)
 - `subscription_period_start`, `subscription_period_end` (from Stripe; paid only)
+- `subscription_paused` — true after **Pause account** (`cancel_at_period_end`). Access lasts through `subscription_period_end`, then the subscription does not renew. **Resume** clears it (`cancel_at_period_end` false) so the next period is charged. The account and notes stay.
 - `organization_id` (nullable FK) — **unused in product logic**
 - timestamps (`created_at` starts the first free 30-day window)
+
+### `former_accounts`
+
+- `email` (lowercase), `google_subject`
+- Written when an account is deleted. A later signup with that email or Google subject does not get a new free window; the free quota is already used.
 
 ### `usage_windows` (quota meter)
 
@@ -271,10 +277,10 @@ After `CaptureService.stop()`, if `durationSeconds` ≥ `MIN_LISTEN_SECONDS` fro
 `Content-Type: multipart/form-data`  
 Authorization: Bearer JWT
 
-| Field | Type |
-| --- | --- |
-| `durationSeconds` | number (total mix) |
-| `audio` | one or more WAV files, **in order**, each ≤ `WAV_CHUNK_SECONDS` |
+| Field             | Type                                                            |
+| ----------------- | --------------------------------------------------------------- |
+| `durationSeconds` | number (total mix)                                              |
+| `audio`           | one or more WAV files, **in order**, each ≤ `WAV_CHUNK_SECONDS` |
 
 Response: `{ status: 'processing' }` (202). Do not wait for GPT. Spike still uses `POST /spike/transcribe` with a **single** `audio` file and `X-Spike-Key` only.
 
@@ -307,7 +313,7 @@ BillingService (backend)
   canStartNote(userId): Promise<{ allowed: boolean; reason?: string }>
 ```
 
-HTTP: **`GET /me`** includes `plan`, `planInterval` (`month` | `year` | null), `remainingSeconds`, `remainingNotes` (do not add `/billing/status` or `/quota`).  
+HTTP: **`GET /me`** includes `plan`, `planInterval` (`month` | `year` | null), `remainingSeconds`, `remainingNotes`, `accessUntil`, `billingPaused` (do not add `/billing/status` or `/quota`). **`POST /me/pause`** with `{ confirm: 'PAUSE' }` sets cancel-at-period-end. **`POST /me/resume`** with `{ confirm: 'RESUME' }` clears it. **`DELETE /me`** with `{ confirm: 'DELETE' }` removes the account and keeps the email in `former_accounts`.  
 `POST /billing/checkout-session` body `{ interval: 'month' | 'year' }` returns `{ url }`.  
 `POST /billing/webhook` is Stripe-only.  
 Before `POST /workspaces/:id/notes`, the notes module calls `canStartNote`. If `allowed` is false, 403 with `reason`.
@@ -318,33 +324,33 @@ Do not invent different paths. No OpenAPI required. JSON unless noted. Product r
 
 **Spike (Steps 2–6 only; dev-only)**
 
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /health` | Liveness |
+| Endpoint                 | Purpose                                                                                                                      |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`            | Liveness                                                                                                                     |
 | `POST /spike/transcribe` | One 16-bit PCM WAV (mono, 16 kHz) → `{ text, language }`. Header `X-Spike-Key`. Never call this from the product notes flow. |
 
 **Product (from Step 7 on)**
 
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /health` | Liveness |
-| `POST /auth/electron/callback` | PKCE `code` + `code_verifier` → JWT |
-| `GET /me` | Current user, plan, remaining quota (minutes and notes) |
-| `GET /config` | App timings (seconds): min listen, pause auto-cancel, pause warning, upload retry, WAV chunk length. Electron must use this; do not hard-code. |
-| `GET /workspaces` | List workspaces |
-| `POST /workspaces` | Create workspace |
-| `DELETE /workspaces/:id` | Delete if **empty** and **not** the user’s last workspace |
-| `GET /workspaces/:id/notes` | List notes in a workspace |
-| `POST /workspaces/:id/notes` | Create note (`listening`) |
-| `POST /notes/:id/stop` | Upload mixed audio as **one or more** 16-bit PCM WAV parts (mono, 16 kHz, **≤ 10 minutes each**); enqueue STT per part, concatenate text, then GPT bullets (`processing`) |
-| `POST /notes/:id/cancel` | Discard while `listening` / `paused` |
-| `GET /notes/:id` | Note detail / summary |
-| `PATCH /notes/:id` | Rename |
-| `POST /notes/:id/move` | Change workspace |
-| `DELETE /notes/:id` | Delete if not `processing` |
-| `POST /notes/:id/retry` | If `failed`: retry STT when WAV still in job temp; else retry GPT when `transcript_text` exists; else 409 (record again) |
-| `POST /billing/checkout-session` | Create Stripe Checkout URL (monthly or yearly) |
-| `POST /billing/webhook` | Stripe → set `paid` (Stripe signature; no user JWT) |
+| Endpoint                         | Purpose                                                                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`                    | Liveness                                                                                                                                                                  |
+| `POST /auth/electron/callback`   | PKCE `code` + `code_verifier` → JWT                                                                                                                                       |
+| `GET /me`                        | Current user, plan, remaining quota (minutes and notes)                                                                                                                   |
+| `GET /config`                    | App timings (seconds): min listen, pause auto-cancel, pause warning, upload retry, WAV chunk length. Electron must use this; do not hard-code.                            |
+| `GET /workspaces`                | List workspaces                                                                                                                                                           |
+| `POST /workspaces`               | Create workspace                                                                                                                                                          |
+| `DELETE /workspaces/:id`         | Delete if **empty** and **not** the user’s last workspace                                                                                                                 |
+| `GET /workspaces/:id/notes`      | List notes in a workspace                                                                                                                                                 |
+| `POST /workspaces/:id/notes`     | Create note (`listening`)                                                                                                                                                 |
+| `POST /notes/:id/stop`           | Upload mixed audio as **one or more** 16-bit PCM WAV parts (mono, 16 kHz, **≤ 10 minutes each**); enqueue STT per part, concatenate text, then GPT bullets (`processing`) |
+| `POST /notes/:id/cancel`         | Discard while `listening` / `paused`                                                                                                                                      |
+| `GET /notes/:id`                 | Note detail / summary                                                                                                                                                     |
+| `PATCH /notes/:id`               | Rename                                                                                                                                                                    |
+| `POST /notes/:id/move`           | Change workspace                                                                                                                                                          |
+| `DELETE /notes/:id`              | Delete if not `processing`                                                                                                                                                |
+| `POST /notes/:id/retry`          | If `failed`: retry STT when WAV still in job temp; else retry GPT when `transcript_text` exists; else 409 (record again)                                                  |
+| `POST /billing/checkout-session` | Create Stripe Checkout URL (monthly or yearly)                                                                                                                            |
+| `POST /billing/webhook`          | Stripe → set `paid` (Stripe signature; no user JWT)                                                                                                                       |
 
 Note status lives on the note (`listening` \| `paused` \| `processing` \| `ready` \| `failed`). Do not add a separate session resource.
 
@@ -354,14 +360,14 @@ Quota caps (60 min / 10 notes / 30 min per note / 100 paid hours) live in the **
 
 Behavior timings live in **backend env** (documented in `backend/.env.example`). Nest `ConfigService` reads them. **`GET /config`** returns them so Electron/website never embed `20 * 60 * 1000`. Changing `.env` (or later a settings table) is enough; no code change.
 
-| Env key (illustrative) | Default for MVP | Meaning |
-| --- | --- | --- |
-| `MIN_LISTEN_SECONDS` | `30` | Below this, Stop → Resume or Cancel |
-| `PAUSE_AUTO_CANCEL_SECONDS` | `1200` (20 min) | Discard if paused this long |
-| `PAUSE_WARNING_SECONDS` | `60` | Warn before auto-cancel |
-| `UPLOAD_RETRY_SECONDS` | `600` (10 min) | Retry Stop upload while offline, then discard |
-| `WAV_CHUNK_SECONDS` | `600` (10 min) | Max length of each WAV part for STT |
-| `OPENAI_TRANSCRIBE_MODEL` | `gpt-4o-mini-transcribe` | OpenAI file STT model |
+| Env key (illustrative)      | Default for MVP          | Meaning                                       |
+| --------------------------- | ------------------------ | --------------------------------------------- |
+| `MIN_LISTEN_SECONDS`        | `30`                     | Below this, Stop → Resume or Cancel           |
+| `PAUSE_AUTO_CANCEL_SECONDS` | `1200` (20 min)          | Discard if paused this long                   |
+| `PAUSE_WARNING_SECONDS`     | `60`                     | Warn before auto-cancel                       |
+| `UPLOAD_RETRY_SECONDS`      | `600` (10 min)           | Retry Stop upload while offline, then discard |
+| `WAV_CHUNK_SECONDS`         | `600` (10 min)           | Max length of each WAV part for STT           |
+| `OPENAI_TRANSCRIBE_MODEL`   | `gpt-4o-mini-transcribe` | OpenAI file STT model                         |
 
 Do not scatter these numbers in React, Swift, or Nest handlers. Audio sample rate **16 kHz** / mono / 16-bit stay locked (format, not a business knob).
 
@@ -415,7 +421,7 @@ Do not scatter these numbers in React, Swift, or Nest handlers. Audio sample rat
 
 **Do:** One module in Electron **main** (native macOS):
 
-- Request **Microphone** and **Screen Recording** (system-audio permission — no video/frames/screenshots). UI copy: meeting *sound*, not the screen.
+- Request **Microphone** and **Screen Recording** (system-audio permission — no video/frames/screenshots). UI copy: meeting _sound_, not the screen.
 - **macOS 14.2+:** **AVAudioEngine** for microphone, **Core Audio process tap** for system audio (no display capture). Mix to 16-bit PCM, mono, 16 kHz; encode a **canonical WAV** (`fmt ` + `data` only — no `JUNK` or other extra chunks) for upload. Pause / Resume / Stop both sources.
 - Do **not** use BlackHole or a virtual mixer. Do **not** use ScreenCaptureKit. If the process tap cannot start, continue **mic-only**.
 - On Stop, POST the mix to `POST /spike/transcribe` with the spike key (key stays in Electron **main** env, never in the renderer)
@@ -582,7 +588,7 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 ## Out of scope for this MVP
 
 - **Screen / video recording** — no frames, no screenshots, even if macOS labels the permission “Screen Recording”
-- **Virtual audio drivers** — no BlackHole, Loopback, VB-Cable, or a user-installed virtual mixer (the Japanese “virtual mic” diagram is *not* the shipping architecture)
+- **Virtual audio drivers** — no BlackHole, Loopback, VB-Cable, or a user-installed virtual mixer (the Japanese “virtual mic” diagram is _not_ the shipping architecture)
 - Meeting bots that join the call; Gmail / Calendar data
 - Live captions / real-time transcript UI; speaker names / diarization
 - Shipping Windows `.exe` or Linux (Windows system-audio is a later native module)
@@ -596,34 +602,36 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 
 ## Decisions (locked)
 
-| Topic | Decision |
-| --- | --- |
-| Unpaid users | App + site on **free** caps; not blocked |
-| Stripe | Real Checkout; **$7.99/mo** and **$87.99/yr**; **USD always** |
-| Where to pay | **Website / system browser**; Electron Upgrade opens the browser |
-| After Checkout | Website success/account page; user closes the Checkout tab |
-| Minimum listen | **30 seconds** |
-| Early stop | **Resume** or **Cancel** (confirm, discard) |
-| Electron auth | System browser, **PKCE**, **loopback** `127.0.0.1`; backend issues **JWT** (`safeStorage`). No webview, no custom scheme. Website uses a separate Web OAuth client + cookie. |
-| Title | User-typed; else **first bullet** |
-| Build order | **Capture first** (Steps 1–5). Live levels (4) and tap reconnect (6) stay in the spike. Product (auth, Stripe, notes) only after headphone transcript passes (Step 5); website is Step 8 |
-| Capture | **AVAudioEngine** (mic) + **Core Audio process tap** (system audio, no screen; no SCK); mix **16-bit PCM WAV, mono, 16 kHz**; product upload **chunks at 10 min**; no virtual driver |
-| Pause | **Auto-cancel after 20 minutes** paused (discard); warn at 1 minute left |
-| Offline / upload | Keep buffering while listening; retry upload **10 minutes** on Stop; then warn and discard. Quit discards unsent audio |
-| Retry failed note | `POST /notes/:id/retry`: STT if WAV still in job temp; GPT if `transcript_text` exists; else record again |
-| Delete workspace | Only if **empty**; never delete the **last** workspace |
-| STT + LLM | **OpenAI GPT** only; one mixed blob |
-| Workspaces | **Multiple per user**, no nesting |
-| Free quota | 60 min / 10 notes per **30 days from signup**; 30 min per note |
-| Paid quota | **100 hours / month** even on yearly; unlimited notes; **no** per-note cap |
-| Paid window | Stripe cycle if monthly; **monthly 100-hour reset** if yearly |
-| Languages | **English and Spanish**; bullets = language of the meeting; mixed EN+ES → **dominant** language |
-| UI language | **Website and Electron chrome: English and Spanish** (toggle + browser default). Meeting **summaries** still follow the meeting language, not the UI language. |
-| Spike transcribe | **Dev-only** (`CAPTURE_SPIKE_KEY`). Never on a public server |
-| Limits source | **`plans` table** for quotas; **env + `GET /config`** for pause/upload/chunk/min-listen. **No magic numbers in UI or handlers.** |
-| Remaining time | Website account, Electron home, during session |
-| Org | FK + table only |
-| Windows | Builder prepared, not shipped |
+| Topic             | Decision                                                                                                                                                                                 |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unpaid users      | App + site on **free** caps; not blocked                                                                                                                                                 |
+| Stripe            | Real Checkout; **$7.99/mo** and **$87.99/yr**; **USD always**                                                                                                                            |
+| Where to pay      | **Website / system browser**; Electron Upgrade opens the browser                                                                                                                         |
+| After Checkout    | Website success/account page; user closes the Checkout tab                                                                                                                               |
+| Minimum listen    | **30 seconds**                                                                                                                                                                           |
+| Early stop        | **Resume** or **Cancel** (confirm, discard)                                                                                                                                              |
+| Electron auth     | System browser, **PKCE**, **loopback** `127.0.0.1`; backend issues **JWT** (`safeStorage`). No webview, no custom scheme. Website uses a separate Web OAuth client + cookie.             |
+| Title             | User-typed; else **first bullet**                                                                                                                                                        |
+| Build order       | **Capture first** (Steps 1–5). Live levels (4) and tap reconnect (6) stay in the spike. Product (auth, Stripe, notes) only after headphone transcript passes (Step 5); website is Step 8 |
+| Capture           | **AVAudioEngine** (mic) + **Core Audio process tap** (system audio, no screen; no SCK); mix **16-bit PCM WAV, mono, 16 kHz**; product upload **chunks at 10 min**; no virtual driver     |
+| Pause             | **Auto-cancel after 20 minutes** paused (discard); warn at 1 minute left                                                                                                                 |
+| Offline / upload  | Keep buffering while listening; retry upload **10 minutes** on Stop; then warn and discard. Quit discards unsent audio                                                                   |
+| Retry failed note | `POST /notes/:id/retry`: STT if WAV still in job temp; GPT if `transcript_text` exists; else record again                                                                                |
+| Delete workspace  | Only if **empty**; never delete the **last** workspace                                                                                                                                   |
+| STT + LLM         | **OpenAI GPT** only; one mixed blob                                                                                                                                                      |
+| Workspaces        | **Multiple per user**, no nesting                                                                                                                                                        |
+| Free quota        | 60 min / 10 notes per **30 days from signup**; 30 min per note                                                                                                                           |
+| Paid quota        | **40 hours / month** even on yearly; unlimited notes; **no** per-note cap                                                                                                                |
+| Paid window       | Stripe cycle if monthly; **monthly 40-hour reset** if yearly                                                                                                                             |
+| Pause account     | Stops the next charge. Paid access continues until `subscription_period_end`. **Resume** turns renewal back on. Website and Electron.                                                    |
+| Deleted account   | Email and Google subject stay in `former_accounts` so free time cannot restart                                                                                                           |
+| Languages         | **English and Spanish**; bullets = language of the meeting; mixed EN+ES → **dominant** language                                                                                          |
+| UI language       | **Website and Electron chrome: English and Spanish** (toggle + browser default). Meeting **summaries** still follow the meeting language, not the UI language.                           |
+| Spike transcribe  | **Dev-only** (`CAPTURE_SPIKE_KEY`). Never on a public server                                                                                                                             |
+| Limits source     | **`plans` table** for quotas; **env + `GET /config`** for pause/upload/chunk/min-listen. **No magic numbers in UI or handlers.**                                                         |
+| Remaining time    | Website account, Electron home, during session                                                                                                                                           |
+| Org               | FK + table only                                                                                                                                                                          |
+| Windows           | Builder prepared, not shipped                                                                                                                                                            |
 
 ## Still open
 

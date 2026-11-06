@@ -55,7 +55,11 @@ Use **test mode**. Create two recurring Prices (USD) — monthly **$7.99** and y
 - `STRIPE_PRICE_ID_MONTHLY`
 - `STRIPE_PRICE_ID_YEARLY`
 
-On API boot those Price ids are copied onto the `paid` row in `plans`. Caps still come from the `plans` table (`max_listening_seconds_per_window`, `max_notes_per_window`). Changing those SQL columns changes remaining quota on `GET /me` without a code change. `max_notes_per_window = 0` on paid means unlimited notes.
+On API boot those Price ids are copied onto the `paid` row in `plans`. Caps still come from the `plans` table (`max_listening_seconds_per_window`, `max_notes_per_window`). Changing those SQL columns changes remaining quota on `GET /me` without a code change. Paid listening is **40 hours** per month (`144000` seconds), including yearly subscribers. `max_notes_per_window = 0` on paid means unlimited notes.
+
+`STRIPE_PRICE_ID_PLUS_MONTHLY` and `STRIPE_PRICE_ID_PLUS_YEARLY` are optional. When set, they are copied onto a reserved `plus` plan row. That plan is not shown on Pricing and Checkout still sells only `paid`. Raise the `plus` listening cap in SQL when that higher plan is ready to sell.
+
+**Pause account** (website Account and the Mac app Profile) asks Stripe to stop renewing at the end of the period already paid. The user keeps the paid plan until that date, then is not charged again. **Resume** on the same card turns renewal back on, so the next period is charged again. The account and notes stay. **Delete account** on both surfaces still requires typing `DELETE`. The email and Google subject are kept in `former_accounts`, so signing up again does not restart the free allowance.
 
 Forward webhooks while developing:
 
@@ -94,7 +98,7 @@ npm run start:dev
 
 `curl http://localhost:3000/config` → timings from `.env` (`minListenSeconds`, pause, upload retry, WAV chunk).
 
-On boot the API creates tables and seeds `plans` (`free` and `paid`). Price **amounts** are not stored in code; Stripe Price **ids** come from `STRIPE_PRICE_ID_*` in `.env` and are written onto the paid plan row.
+On boot the API creates tables and seeds `plans` (`free`, `paid` at 40 hours, and a reserved `plus` row). Price **amounts** are not stored in code; Stripe Price **ids** come from `STRIPE_PRICE_ID_*` in `.env` and are written onto the paid plan row. Optional plus Price ids stay unused until that plan is sold.
 
 If you already run Homebrew Postgres, create a `pith` database and set `DATABASE_URL` (for example `postgres://localhost:5432/pith`) instead of Docker.
 

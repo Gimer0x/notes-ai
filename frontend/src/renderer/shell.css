@@ -522,6 +522,21 @@ button.auth-link svg {
   min-height: 0;
 }
 
+.content:has(.profile) {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.content:has(.profile) #view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
 .note-meta {
   display: flex;
   align-items: center;
@@ -1060,9 +1075,15 @@ button.icon-btn:hover:not(:disabled) {
 }
 
 .profile {
-  max-width: 720px;
+  flex: 1;
   width: 100%;
-  margin: 28px auto 0;
+  max-width: 720px;
+  min-height: 0;
+  margin: 0 auto;
+  padding: 20px 0 36px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .profile-card {
@@ -1078,8 +1099,8 @@ button.icon-btn:hover:not(:disabled) {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  min-height: 56px;
-  padding: 14px 18px;
+  min-height: 52px;
+  padding: 12px 18px;
   border-bottom: 1px dashed rgba(42, 46, 60, 0.22);
 }
 
@@ -1159,14 +1180,14 @@ button.icon-btn:hover:not(:disabled) {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  margin: 4px 0 28px;
+  margin: 0;
 }
 
 .profile-photo {
   display: block;
-  width: 84px;
-  height: 84px;
-  margin: 0 0 14px;
+  width: 72px;
+  height: 72px;
+  margin: 0 0 10px;
   border-radius: 50%;
   object-fit: cover;
   background: #f2f3f6;
@@ -1178,7 +1199,7 @@ button.icon-btn:hover:not(:disabled) {
 
 .profile-name {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.3rem;
   font-weight: 650;
   line-height: 1.25;
   color: var(--ink);
@@ -1195,8 +1216,8 @@ button.icon-btn:hover:not(:disabled) {
 .account h2,
 .billing h2,
 .danger-zone h2 {
-  margin: 0 0 10px;
-  font-size: 0.95rem;
+  margin: 0 0 8px;
+  font-size: 0.92rem;
   font-weight: 500;
   color: var(--muted);
 }
@@ -1206,7 +1227,7 @@ button.icon-btn:hover:not(:disabled) {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 18px;
+  padding: 16px 18px;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: #f7f8fb;
@@ -1220,7 +1241,7 @@ button.icon-btn:hover:not(:disabled) {
 
 .billing-name {
   margin: 0;
-  font-size: 1.45rem;
+  font-size: 1.35rem;
   font-weight: 650;
   color: var(--ink);
 }
@@ -1240,12 +1261,16 @@ button.icon-btn:hover:not(:disabled) {
   display: none;
 }
 
+.danger-card + .danger-card {
+  margin-top: 12px;
+}
+
 .danger-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  padding: 16px 18px;
+  gap: 20px;
+  padding: 14px 18px;
   border: 1px solid rgba(139, 46, 46, 0.35);
   border-radius: 16px;
   background: #f7f8fb;
@@ -1254,6 +1279,43 @@ button.icon-btn:hover:not(:disabled) {
 .danger-title {
   margin: 0 0 4px;
   font-weight: 650;
+}
+
+.danger-swap {
+  display: grid;
+}
+
+.danger-swap > * {
+  grid-area: 1 / 1;
+}
+
+.danger-swap > [hidden] {
+  display: block !important;
+  visibility: hidden;
+}
+
+.danger-card .danger-hint {
+  margin: 0;
+  max-width: 36rem;
+  font-size: calc(1em - 1pt);
+  line-height: 1.45;
+}
+
+.danger-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.danger-inline .danger-hint {
+  flex: 1;
+}
+
+.danger-inline input {
+  width: 108px;
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .danger-card p {

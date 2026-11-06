@@ -1,13 +1,42 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../api';
 import { useAuth } from '../auth/AuthProvider';
 import { useI18n } from '../i18n/I18nProvider';
 import { planLabel } from '../i18n/planLabel';
 
+function accessDay(iso: string | null | undefined, locale: string): string {
+  if (!iso) {
+    return '';
+  }
+  const end = new Date(iso);
+  if (Number.isNaN(end.getTime())) {
+    return '';
+  }
+  const lastDay = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 1);
+  return lastDay.toLocaleDateString(locale === 'es' ? 'es' : 'en', { dateStyle: 'long' });
+}
+
+function renewalDay(iso: string | null | undefined, locale: string): string {
+  if (!iso) {
+    return '';
+  }
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return date.toLocaleDateString(locale === 'es' ? 'es' : 'en', { dateStyle: 'long' });
+}
+
 export function AccountPage() {
-  const { t } = useI18n();
-  const { signedIn, me, loading, refresh } = useAuth();
+  const { locale, t } = useI18n();
+  const { signedIn, me, loading, refresh, signOut } = useAuth();
+  const [pauseOpen, setPauseOpen] = useState(false);
+  const [resumeOpen, setResumeOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteWord, setDeleteWord] = useState('');
+  const [working, setWorking] = useState(false);
+  const [accountError, setAccountError] = useState('');
   const [params] = useSearchParams();
   const justPaid = params.get('checkout') === 'success';
   const sessionId = params.get('session_id');
@@ -96,6 +125,155 @@ export function AccountPage() {
         </article>
       </div>
       )}
+      <div className="account-actions">
+        {me.plan === 'paid' ? (
+          <article className="card">
+            <h3>{t.pauseAccount}</h3>
+            <p>
+              {me.accessUntil
+                ? t.pauseAccountHint.replace('{date}', accessDay(me.accessUntil, locale))
+                : t.pauseAccountHintOpen}
+            </p>
+            {me.billingPaused ? (
+              <>
+                <p>{t.pauseAccountUntil.replace('{date}', accessDay(me.accessUntil, locale))}</p>
+                {resumeOpen ? (
+                  <p>
+                    {me.accessUntil
+                      ? t.resumeAccountBody.replace('{date}', renewalDay(me.accessUntil, locale))
+                      : t.resumeAccountBodyOpen}
+                  </p>
+                ) : null}
+                {resumeOpen ? (
+                  <button
+                    type="button"
+                    disabled={working}
+                    onClick={() => {
+                      void (async () => {
+                        setWorking(true);
+                        setAccountError('');
+                        try {
+                          const response = await apiFetch('/me/resume', {
+                            method: 'POST',
+                            body: JSON.stringify({ confirm: 'RESUME' }),
+                          });
+                          if (!response.ok) {
+                            setAccountError(t.accountActionFailed);
+                            return;
+                          }
+                          setResumeOpen(false);
+                          await refresh();
+                        } catch {
+                          setAccountError(t.accountActionFailed);
+                        } finally {
+                          setWorking(false);
+                        }
+                      })();
+                    }}
+                  >
+                    {t.resumeAccountConfirm}
+                  </button>
+                ) : (
+                  <button type="button" className="secondary" onClick={() => setResumeOpen(true)}>
+                    {t.resumeAccount}
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                {pauseOpen ? (
+                  <p>
+                    {me.accessUntil
+                      ? t.pauseAccountBody.replace('{date}', accessDay(me.accessUntil, locale))
+                      : t.pauseAccountBodyOpen}
+                  </p>
+                ) : null}
+                {pauseOpen ? (
+                  <button
+                    type="button"
+                    disabled={working}
+                    onClick={() => {
+                      void (async () => {
+                        setWorking(true);
+                        setAccountError('');
+                        try {
+                          const response = await apiFetch('/me/pause', {
+                            method: 'POST',
+                            body: JSON.stringify({ confirm: 'PAUSE' }),
+                          });
+                          if (!response.ok) {
+                            setAccountError(t.accountActionFailed);
+                            return;
+                          }
+                          setPauseOpen(false);
+                          await refresh();
+                        } catch {
+                          setAccountError(t.accountActionFailed);
+                        } finally {
+                          setWorking(false);
+                        }
+                      })();
+                    }}
+                  >
+                    {t.pauseAccountConfirm}
+                  </button>
+                ) : (
+                  <button type="button" className="secondary" onClick={() => setPauseOpen(true)}>
+                    {t.pauseAccount}
+                  </button>
+                )}
+              </>
+            )}
+          </article>
+        ) : null}
+        <article className="card">
+          <h3>{t.deleteAccount}</h3>
+          <p>{t.deleteAccountHint}</p>
+          {deleteOpen ? (
+            <>
+              <p>{t.deleteAccountBody}</p>
+              <input
+                value={deleteWord}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(event) => setDeleteWord(event.target.value)}
+              />
+              <button
+                type="button"
+                disabled={working || deleteWord !== 'DELETE'}
+                onClick={() => {
+                  void (async () => {
+                    setWorking(true);
+                    setAccountError('');
+                    try {
+                      const response = await apiFetch('/me', {
+                        method: 'DELETE',
+                        body: JSON.stringify({ confirm: 'DELETE' }),
+                      });
+                      if (!response.ok) {
+                        setAccountError(t.accountActionFailed);
+                        return;
+                      }
+                      await signOut();
+                    } catch {
+                      setAccountError(t.accountActionFailed);
+                    } finally {
+                      setWorking(false);
+                    }
+                  })();
+                }}
+              >
+                {t.deleteAccountConfirm}
+              </button>
+            </>
+          ) : (
+            <button type="button" className="secondary" onClick={() => setDeleteOpen(true)}>
+              {t.deleteAccount}
+            </button>
+          )}
+        </article>
+        {accountError ? <p>{accountError}</p> : null}
+      </div>
       <p className="footer">{t.footerNote}</p>
     </div>
   );

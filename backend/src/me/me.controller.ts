@@ -6,6 +6,7 @@ import {
   Get,
   Header,
   HttpCode,
+  Post,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
@@ -23,6 +24,8 @@ export type MeResponse = {
   planInterval: 'month' | 'year' | null;
   remainingSeconds: number;
   remainingNotes: number | null;
+  accessUntil: string | null;
+  billingPaused: boolean;
 };
 
 @Controller('me')
@@ -51,7 +54,31 @@ export class MeController {
       planInterval: status.planInterval,
       remainingSeconds: status.remainingSeconds,
       remainingNotes: status.remainingNotes,
+      accessUntil: status.accessUntil,
+      billingPaused: status.billingPaused,
     };
+  }
+
+  @Post('pause')
+  async pause(
+    @CurrentUserId() userId: string,
+    @Body() body: { confirm?: string },
+  ): Promise<{ accessUntil: string }> {
+    if (body.confirm !== 'PAUSE') {
+      throw new BadRequestException('confirm_pause');
+    }
+    return this.stripe.pauseAtPeriodEnd(userId);
+  }
+
+  @Post('resume')
+  async resume(
+    @CurrentUserId() userId: string,
+    @Body() body: { confirm?: string },
+  ): Promise<{ renewsOn: string }> {
+    if (body.confirm !== 'RESUME') {
+      throw new BadRequestException('confirm_resume');
+    }
+    return this.stripe.resumeSubscription(userId);
   }
 
   @Delete()

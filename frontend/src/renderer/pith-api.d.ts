@@ -48,6 +48,8 @@ type PithApi = {
     login: () => Promise<void>;
     logout: () => Promise<void>;
     deleteAccount: () => Promise<void>;
+    pauseAccount: () => Promise<{ accessUntil: string }>;
+    resumeAccount: () => Promise<{ renewsOn: string }>;
     me: () => Promise<{
       id: string;
       email: string;
@@ -57,6 +59,8 @@ type PithApi = {
       planInterval: 'month' | 'year' | null;
       remainingSeconds: number;
       remainingNotes: number | null;
+      accessUntil?: string | null;
+      billingPaused?: boolean;
       stale?: boolean;
     } | null>;
     upgrade: () => Promise<void>;

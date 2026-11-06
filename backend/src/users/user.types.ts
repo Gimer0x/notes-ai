@@ -10,6 +10,7 @@ export type UserRow = {
   stripe_price_id: string | null;
   subscription_period_start: Date | null;
   subscription_period_end: Date | null;
+  subscription_paused: boolean;
 };
 
 export type GoogleIdentity = {

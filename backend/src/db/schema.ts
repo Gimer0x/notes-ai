@@ -108,6 +108,32 @@ export const SCHEMA_STATEMENTS: string[] = [
     seconds INTEGER NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_paused BOOLEAN NOT NULL DEFAULT false`,
+  `CREATE TABLE IF NOT EXISTS former_accounts (
+    email TEXT PRIMARY KEY,
+    google_subject TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS former_accounts_google_subject_idx
+   ON former_accounts (google_subject)
+   WHERE google_subject IS NOT NULL`,
+  `DO $$
+   DECLARE
+     constraint_name text;
+   BEGIN
+     SELECT con.conname INTO constraint_name
+     FROM pg_constraint con
+     JOIN pg_class rel ON rel.oid = con.conrelid
+     JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+     WHERE rel.relname = 'plans'
+       AND nsp.nspname = 'public'
+       AND con.contype = 'c'
+       AND pg_get_constraintdef(con.oid) ILIKE '%free%';
+     IF constraint_name IS NOT NULL THEN
+       EXECUTE format('ALTER TABLE plans DROP CONSTRAINT %I', constraint_name);
+     END IF;
+   END $$`,
+  `ALTER TABLE plans ADD CONSTRAINT plans_code_check CHECK (code IN ('free', 'paid', 'plus'))`,
 ];
 
 export const SEED_PLANS_SQL = `
@@ -120,10 +146,25 @@ INSERT INTO plans (
   stripe_price_id_yearly
 ) VALUES
   ('free', 3600, 1800, 10, NULL, NULL),
-  ('paid', 360000, NULL, 0, NULL, NULL)
+  ('paid', 144000, NULL, 0, NULL, NULL)
 ON CONFLICT (code) DO NOTHING;
 
 UPDATE plans
 SET max_notes_per_window = 0, updated_at = now()
-WHERE code = 'paid' AND max_notes_per_window IS NULL
+WHERE code = 'paid' AND max_notes_per_window IS NULL;
+
+UPDATE plans
+SET max_listening_seconds_per_window = 144000, updated_at = now()
+WHERE code = 'paid' AND max_listening_seconds_per_window = 360000;
+
+INSERT INTO plans (
+  code,
+  max_listening_seconds_per_window,
+  max_seconds_per_note,
+  max_notes_per_window,
+  stripe_price_id_monthly,
+  stripe_price_id_yearly
+) VALUES
+  ('plus', 144000, NULL, 0, NULL, NULL)
+ON CONFLICT (code) DO NOTHING;
 `;

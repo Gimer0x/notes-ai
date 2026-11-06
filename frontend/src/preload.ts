@@ -12,6 +12,8 @@ type MePayload = {
   planInterval: 'month' | 'year' | null;
   remainingSeconds: number;
   remainingNotes: number | null;
+  accessUntil?: string | null;
+  billingPaused?: boolean;
   stale?: boolean;
 };
 
@@ -44,6 +46,8 @@ contextBridge.exposeInMainWorld('pith', {
     login: (): Promise<void> => call('auth:login'),
     logout: (): Promise<void> => call('auth:logout'),
     deleteAccount: (): Promise<void> => call('auth:deleteAccount'),
+    pauseAccount: (): Promise<{ accessUntil: string }> => call('auth:pauseAccount'),
+    resumeAccount: (): Promise<{ renewsOn: string }> => call('auth:resumeAccount'),
     me: (): Promise<MePayload | null> => call('auth:me'),
     upgrade: (): Promise<void> => call('billing:upgrade'),
     syncBilling: (): Promise<void> => call('billing:sync'),

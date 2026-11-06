@@ -45,6 +45,89 @@ export class StripeService implements OnModuleInit {
         [yearly],
       );
     }
+    const plusMonthly = this.config.get<string>('STRIPE_PRICE_ID_PLUS_MONTHLY')?.trim();
+    const plusYearly = this.config.get<string>('STRIPE_PRICE_ID_PLUS_YEARLY')?.trim();
+    if (plusMonthly) {
+      await this.db.query(
+        `UPDATE plans SET stripe_price_id_monthly = $1, updated_at = now() WHERE code = 'plus'`,
+        [plusMonthly],
+      );
+    }
+    if (plusYearly) {
+      await this.db.query(
+        `UPDATE plans SET stripe_price_id_yearly = $1, updated_at = now() WHERE code = 'plus'`,
+        [plusYearly],
+      );
+    }
+  }
+
+  async pauseAtPeriodEnd(userId: string): Promise<{ accessUntil: string }> {
+    const row = await this.db.query<{
+      plan_code: 'free' | 'paid';
+      stripe_subscription_id: string | null;
+      subscription_paused: boolean;
+      subscription_period_end: Date | null;
+    }>(
+      `SELECT plan_code, stripe_subscription_id, subscription_paused, subscription_period_end
+       FROM users WHERE id = $1`,
+      [userId],
+    );
+    const user = row.rows[0];
+    if (!user || user.plan_code !== 'paid' || !user.stripe_subscription_id) {
+      throw new ConflictException('not_paid');
+    }
+    if (user.subscription_paused && user.subscription_period_end) {
+      return { accessUntil: new Date(user.subscription_period_end).toISOString() };
+    }
+    const stripe = this.requireStripe();
+    let subscription: Stripe.Subscription;
+    try {
+      subscription = await stripe.subscriptions.update(user.stripe_subscription_id, {
+        cancel_at_period_end: true,
+      });
+    } catch {
+      throw new BadGatewayException('pause_failed');
+    }
+    await this.applySubscription(subscription, userId);
+    const end = periodUnix(subscription, 'end');
+    if (!end) {
+      throw new BadGatewayException('pause_failed');
+    }
+    return { accessUntil: new Date(end * 1000).toISOString() };
+  }
+
+  async resumeSubscription(userId: string): Promise<{ renewsOn: string }> {
+    const row = await this.db.query<{
+      plan_code: 'free' | 'paid';
+      stripe_subscription_id: string | null;
+      subscription_paused: boolean;
+      subscription_period_end: Date | null;
+    }>(
+      `SELECT plan_code, stripe_subscription_id, subscription_paused, subscription_period_end
+       FROM users WHERE id = $1`,
+      [userId],
+    );
+    const user = row.rows[0];
+    if (!user || user.plan_code !== 'paid' || !user.stripe_subscription_id || !user.subscription_paused) {
+      throw new ConflictException('not_paused');
+    }
+    const stripe = this.requireStripe();
+    let subscription: Stripe.Subscription;
+    try {
+      subscription = await stripe.subscriptions.update(user.stripe_subscription_id, {
+        cancel_at_period_end: false,
+      });
+    } catch {
+      throw new BadGatewayException('resume_failed');
+    }
+    await this.applySubscription(subscription, userId);
+    const end = periodUnix(subscription, 'end') ?? (
+      user.subscription_period_end ? Math.floor(new Date(user.subscription_period_end).getTime() / 1000) : null
+    );
+    if (!end) {
+      throw new BadGatewayException('resume_failed');
+    }
+    return { renewsOn: new Date(end * 1000).toISOString() };
   }
 
   async createCheckoutSession(
@@ -231,6 +314,7 @@ export class StripeService implements OnModuleInit {
          stripe_price_id = $5,
          subscription_period_start = $6,
          subscription_period_end = $7,
+         subscription_paused = $8,
          updated_at = now()
        WHERE id = $1`,
       [
@@ -241,6 +325,7 @@ export class StripeService implements OnModuleInit {
         priceId,
         periodStart ? new Date(periodStart * 1000) : null,
         periodEnd ? new Date(periodEnd * 1000) : null,
+        paid && subscription.cancel_at_period_end === true,
       ],
     );
   }

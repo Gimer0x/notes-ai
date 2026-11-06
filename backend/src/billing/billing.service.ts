@@ -9,6 +9,8 @@ export type BillingStatus = {
   planInterval: 'month' | 'year' | null;
   remainingSeconds: number;
   remainingNotes: number | null;
+  accessUntil: string | null;
+  billingPaused: boolean;
 };
 
 type PlanRow = {
@@ -23,7 +25,12 @@ type WindowRow = {
 };
 
 /** Free quota window from PLAN: 30 days from signup, not a calendar month. */
-const FREE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+export const FREE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function freeQuotaWindow(createdAt: Date): { start: Date; end: Date } {
+  const start = new Date(createdAt);
+  return { start, end: new Date(start.getTime() + FREE_WINDOW_MS) };
+}
 
 @Injectable()
 export class BillingService {
@@ -45,7 +52,8 @@ export class BillingService {
          stripe_customer_id,
          stripe_price_id,
          subscription_period_start,
-         subscription_period_end
+         subscription_period_end,
+         subscription_paused
        FROM users
        WHERE id = $1`,
       [userId],
@@ -73,11 +81,19 @@ export class BillingService {
     const remainingNotes = unlimitedNotes(plan.max_notes_per_window)
       ? null
       : Math.max(0, (plan.max_notes_per_window ?? 0) - usage.notes_counted);
+    const periodEnd = user.subscription_period_end
+      ? new Date(user.subscription_period_end)
+      : null;
     return {
       plan: user.plan_code,
       planInterval: await this.intervalFor(user),
       remainingSeconds,
       remainingNotes,
+      accessUntil:
+        user.plan_code === 'paid' && periodEnd && !Number.isNaN(periodEnd.getTime())
+          ? periodEnd.toISOString()
+          : null,
+      billingPaused: user.plan_code === 'paid' && Boolean(user.subscription_paused),
     };
   }
 
@@ -123,7 +139,8 @@ export class BillingService {
          stripe_customer_id,
          stripe_price_id,
          subscription_period_start,
-         subscription_period_end
+         subscription_period_end,
+         subscription_paused
        FROM users
        WHERE id = $1`,
       [userId],

@@ -324,6 +324,40 @@ select {
   margin: 14px 0 4px;
 }
 
+.account-actions {
+  display: grid;
+  gap: 16px;
+  max-width: 40rem;
+  margin: 0 0 28px;
+}
+
+.account-actions .card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.account-actions .card h3,
+.account-actions .card p {
+  margin: 0;
+}
+
+.account-actions .card p {
+  line-height: 1.55;
+  max-width: 38rem;
+}
+
+.account-actions input {
+  display: block;
+  width: min(220px, 100%);
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+}
+
 .price + .price {
   font-size: 1rem;
   font-weight: 500;

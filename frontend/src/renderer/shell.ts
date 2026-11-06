@@ -8,6 +8,8 @@ type Me = {
   planInterval: 'month' | 'year' | null;
   remainingSeconds: number;
   remainingNotes: number | null;
+  accessUntil?: string | null;
+  billingPaused?: boolean;
   stale?: boolean;
 };
 
@@ -469,6 +471,29 @@ function showProfilePhoto(user: Me | null): void {
   photo.hidden = false;
 }
 
+function accessDay(iso: string | null | undefined): string {
+  if (!iso) {
+    return '';
+  }
+  const end = new Date(iso);
+  if (Number.isNaN(end.getTime())) {
+    return '';
+  }
+  const lastDay = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 1);
+  return lastDay.toLocaleDateString(locale === 'es' ? 'es' : 'en', { dateStyle: 'long' });
+}
+
+function renewalDay(iso: string | null | undefined): string {
+  if (!iso) {
+    return '';
+  }
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return date.toLocaleDateString(locale === 'es' ? 'es' : 'en', { dateStyle: 'long' });
+}
+
 function planDetail(user: Me | null): string {
   if (user?.plan === 'paid') {
     return t.paidCap;
@@ -925,12 +950,51 @@ function renderProfile(): void {
         me
           ? `<section class="danger-zone">
         <h2>${escapeHtml(t.dangerZone)}</h2>
+        ${
+          me.plan === 'paid'
+            ? `<div class="danger-card">
+          <div>
+            <p class="danger-title">${escapeHtml(t.pauseAccount)}</p>
+            <div class="danger-swap">
+              <p class="danger-hint" id="pauseAccountHint">${escapeHtml(
+                me.accessUntil
+                  ? t.pauseAccountHint.replace('{date}', accessDay(me.accessUntil))
+                  : t.pauseAccountHintOpen,
+              )}</p>
+              ${
+                me.billingPaused
+                  ? `<p class="danger-hint" id="resumeAccountConfirm" hidden>${escapeHtml(
+                      me.accessUntil
+                        ? t.resumeAccountBody.replace('{date}', renewalDay(me.accessUntil))
+                        : t.resumeAccountBodyOpen,
+                    )}</p>`
+                  : `<p class="danger-hint" id="pauseAccountConfirm" hidden>${escapeHtml(
+                      me.accessUntil
+                        ? t.pauseAccountBody.replace('{date}', accessDay(me.accessUntil))
+                        : t.pauseAccountBodyOpen,
+                    )}</p>`
+              }
+            </div>
+          </div>
+          ${
+            me.billingPaused
+              ? `<button type="button" id="resumeAccount">${escapeHtml(t.resumeAccount)}</button>
+          <button type="button" id="resumeAccountGo" hidden>${escapeHtml(t.resumeAccountConfirm)}</button>`
+              : `<button type="button" id="pauseAccount">${escapeHtml(t.pauseAccount)}</button>
+          <button type="button" id="pauseAccountGo" hidden>${escapeHtml(t.pauseAccountConfirm)}</button>`
+          }
+        </div>`
+            : ''
+        }
         <div class="danger-card">
           <div>
             <p class="danger-title">${escapeHtml(t.deleteAccount)}</p>
-            <div id="deleteAccountConfirm" hidden>
-              <p>${escapeHtml(t.deleteAccountBody)}</p>
-              <input id="deleteAccountWord" autocomplete="off" spellcheck="false" />
+            <div class="danger-swap">
+              <p class="danger-hint" id="deleteAccountHint">${escapeHtml(t.deleteAccountHint)}</p>
+              <div id="deleteAccountConfirm" class="danger-inline" hidden>
+                <p class="danger-hint">${escapeHtml(t.deleteAccountBody)}</p>
+                <input id="deleteAccountWord" autocomplete="off" spellcheck="false" />
+              </div>
             </div>
           </div>
           <button type="button" id="deleteAccount">${escapeHtml(t.deleteAccount)}</button>
@@ -945,6 +1009,56 @@ function renderProfile(): void {
   $('upgrade').textContent = t.upgrade;
   $('upgrade').addEventListener('click', () => pith.auth.upgrade());
   bindLangPicker();
+  const resumeAccount = document.getElementById('resumeAccount') as HTMLButtonElement | null;
+  const resumeGo = document.getElementById('resumeAccountGo') as HTMLButtonElement | null;
+  const resumeConfirm = document.getElementById('resumeAccountConfirm');
+  if (resumeAccount && resumeGo && resumeConfirm) {
+    resumeAccount.addEventListener('click', () => {
+      resumeAccount.hidden = true;
+      const hint = document.getElementById('pauseAccountHint');
+      if (hint) {
+        hint.hidden = true;
+      }
+      resumeConfirm.hidden = false;
+      resumeGo.hidden = false;
+    });
+    resumeGo.addEventListener('click', () => {
+      void (async () => {
+        resumeGo.disabled = true;
+        await pith.auth.resumeAccount();
+        await refreshMe();
+        render();
+      })().catch((error: unknown) => {
+        resumeGo.disabled = false;
+        setMainError(apiMessage(error));
+      });
+    });
+  }
+  const pauseAccount = document.getElementById('pauseAccount') as HTMLButtonElement | null;
+  const pauseGo = document.getElementById('pauseAccountGo') as HTMLButtonElement | null;
+  const pauseConfirm = document.getElementById('pauseAccountConfirm');
+  if (pauseAccount && pauseGo && pauseConfirm) {
+    pauseAccount.addEventListener('click', () => {
+      pauseAccount.hidden = true;
+      const hint = document.getElementById('pauseAccountHint');
+      if (hint) {
+        hint.hidden = true;
+      }
+      pauseConfirm.hidden = false;
+      pauseGo.hidden = false;
+    });
+    pauseGo.addEventListener('click', () => {
+      void (async () => {
+        pauseGo.disabled = true;
+        await pith.auth.pauseAccount();
+        await refreshMe();
+        render();
+      })().catch((error: unknown) => {
+        pauseGo.disabled = false;
+        setMainError(apiMessage(error));
+      });
+    });
+  }
   const deleteAccount = document.getElementById('deleteAccount') as HTMLButtonElement | null;
   const deleteGo = document.getElementById('deleteAccountGo') as HTMLButtonElement | null;
   const deleteConfirm = document.getElementById('deleteAccountConfirm');
@@ -952,6 +1066,10 @@ function renderProfile(): void {
   if (deleteAccount && deleteGo && deleteConfirm && deleteWord) {
     deleteAccount.addEventListener('click', () => {
       deleteAccount.hidden = true;
+      const hint = document.getElementById('deleteAccountHint');
+      if (hint) {
+        hint.hidden = true;
+      }
       deleteConfirm.hidden = false;
       deleteGo.hidden = false;
       deleteWord.value = '';

@@ -17,7 +17,7 @@ export async function createTestApp(): Promise<INestApplication> {
 export async function resetDb(app: INestApplication): Promise<void> {
   const db = app.get(DbService);
   await db.query(
-    'TRUNCATE TABLE notes, workspaces, usage_windows, users CASCADE',
+    'TRUNCATE TABLE notes, workspaces, usage_windows, users, former_accounts CASCADE',
   );
   await db.query(
     `UPDATE plans

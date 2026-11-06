@@ -7,6 +7,8 @@ export type MeResponse = {
   planInterval: 'month' | 'year' | null;
   remainingSeconds: number;
   remainingNotes: number | null;
+  accessUntil: string | null;
+  billingPaused: boolean;
 };
 
 export function apiUrl(): string {

@@ -332,6 +332,44 @@ handleIpc('auth:deleteAccount', async () => {
   }
   await auth.logout();
 });
+handleIpc('auth:pauseAccount', async () => {
+  const token = await auth.getAccessToken();
+  if (!token) {
+    throw new Error('sign_in_required');
+  }
+  const response = await fetch(`${backendUrl()}/me/pause`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ confirm: 'PAUSE' }),
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as { message?: string };
+    throw new Error(payload.message || 'pause_failed');
+  }
+  return (await response.json()) as { accessUntil: string };
+});
+handleIpc('auth:resumeAccount', async () => {
+  const token = await auth.getAccessToken();
+  if (!token) {
+    throw new Error('sign_in_required');
+  }
+  const response = await fetch(`${backendUrl()}/me/resume`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ confirm: 'RESUME' }),
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as { message?: string };
+    throw new Error(payload.message || 'resume_failed');
+  }
+  return (await response.json()) as { renewsOn: string };
+});
 type CachedMe = Record<string, unknown> & { stale?: boolean };
 
 function meCachePath(): string {

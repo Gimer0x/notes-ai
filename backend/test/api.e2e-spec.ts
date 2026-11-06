@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { BillingService } from '../src/billing/billing.service';
+import { UsersService } from '../src/users/users.service';
 import { SlicesService } from '../src/slices/slices.service';
 import { DbService } from '../src/db/db.service';
 import { signUserToken } from '../src/auth/jwt';
@@ -61,7 +62,58 @@ describe('API contracts (e2e)', () => {
       remainingNotes: 10,
     });
     expect(body.remainingSeconds).toBe(3600);
+    expect(body.accessUntil).toBeNull();
+    expect(body.billingPaused).toBe(false);
     expect(body).not.toHaveProperty('quota');
+  });
+
+  it('POST /me/pause rejects a free account', async () => {
+    const user = await insertUser(app, {
+      email: 'pause-free@example.com',
+      subject: 'sub-pause-free',
+    });
+    const token = signUserToken(user.id, JWT_SECRET);
+    await request(app.getHttpServer())
+      .post('/me/pause')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ confirm: 'PAUSE' })
+      .expect(409);
+  });
+
+  it('POST /me/resume rejects an account that is not paused', async () => {
+    const user = await insertUser(app, {
+      email: 'resume-free@example.com',
+      subject: 'sub-resume-free',
+    });
+    const token = signUserToken(user.id, JWT_SECRET);
+    await request(app.getHttpServer())
+      .post('/me/resume')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ confirm: 'RESUME' })
+      .expect(409);
+  });
+
+  it('a deleted email does not get a fresh free window', async () => {
+    const users = app.get(UsersService);
+    const user = await insertUser(app, {
+      email: 'former@example.com',
+      subject: 'sub-former',
+    });
+    await users.deleteAccount(user.id);
+    const again = await users.upsertFromGoogle({
+      subject: 'sub-former-again',
+      email: 'Former@example.com',
+      displayName: null,
+      picture: null,
+    });
+    const token = signUserToken(again.id, JWT_SECRET);
+    const { body } = await request(app.getHttpServer())
+      .get('/me')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(body.plan).toBe('free');
+    expect(body.remainingSeconds).toBe(0);
+    expect(body.remainingNotes).toBe(0);
   });
 
   it('GET /me accepts the website session cookie', async () => {
@@ -97,7 +149,7 @@ describe('API contracts (e2e)', () => {
     expect(body.plan).toBe('paid');
     expect(body.planInterval).toBe('month');
     expect(body.remainingNotes).toBeNull();
-    expect(body.remainingSeconds).toBe(360000);
+    expect(body.remainingSeconds).toBe(144000);
   });
 
   it('BillingService.canStartNote blocks when time or notes are exhausted', async () => {
