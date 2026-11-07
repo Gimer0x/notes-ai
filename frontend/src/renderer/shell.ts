@@ -991,14 +991,15 @@ function renderProfile(): void {
             <p class="danger-title">${escapeHtml(t.deleteAccount)}</p>
             <div class="danger-swap">
               <p class="danger-hint" id="deleteAccountHint">${escapeHtml(t.deleteAccountHint)}</p>
-              <div id="deleteAccountConfirm" class="danger-inline" hidden>
-                <p class="danger-hint">${escapeHtml(t.deleteAccountBody)}</p>
-                <input id="deleteAccountWord" autocomplete="off" spellcheck="false" />
-              </div>
+              <p class="danger-hint" id="deleteAccountConfirm" hidden>${escapeHtml(t.deleteAccountBody)}</p>
             </div>
           </div>
-          <button type="button" id="deleteAccount">${escapeHtml(t.deleteAccount)}</button>
-          <button type="button" id="deleteAccountGo" hidden disabled>${escapeHtml(t.deleteAccountConfirm)}</button>
+          <div class="danger-actions">
+            <input id="deleteAccountWord" autocomplete="off" spellcheck="false" hidden />
+            <button type="button" id="deleteAccountCancel" class="danger-cancel" hidden>${escapeHtml(t.cancel)}</button>
+            <button type="button" id="deleteAccount">${escapeHtml(t.deleteAccount)}</button>
+            <button type="button" id="deleteAccountGo" hidden disabled>${escapeHtml(t.deleteAccountConfirm)}</button>
+          </div>
         </div>
       </section>`
           : ''
@@ -1061,19 +1062,31 @@ function renderProfile(): void {
   }
   const deleteAccount = document.getElementById('deleteAccount') as HTMLButtonElement | null;
   const deleteGo = document.getElementById('deleteAccountGo') as HTMLButtonElement | null;
+  const deleteCancel = document.getElementById('deleteAccountCancel') as HTMLButtonElement | null;
   const deleteConfirm = document.getElementById('deleteAccountConfirm');
   const deleteWord = document.getElementById('deleteAccountWord') as HTMLInputElement | null;
-  if (deleteAccount && deleteGo && deleteConfirm && deleteWord) {
-    deleteAccount.addEventListener('click', () => {
-      deleteAccount.hidden = true;
+  if (deleteAccount && deleteGo && deleteCancel && deleteConfirm && deleteWord) {
+    const showDeleteConfirm = (open: boolean): void => {
       const hint = document.getElementById('deleteAccountHint');
       if (hint) {
-        hint.hidden = true;
+        hint.hidden = open;
       }
-      deleteConfirm.hidden = false;
-      deleteGo.hidden = false;
-      deleteWord.value = '';
-      deleteWord.focus();
+      deleteConfirm.hidden = !open;
+      deleteAccount.hidden = open;
+      deleteWord.hidden = !open;
+      deleteCancel.hidden = !open;
+      deleteGo.hidden = !open;
+      if (open) {
+        deleteWord.value = '';
+        deleteGo.disabled = true;
+        deleteWord.focus();
+      }
+    };
+    deleteAccount.addEventListener('click', () => {
+      showDeleteConfirm(true);
+    });
+    deleteCancel.addEventListener('click', () => {
+      showDeleteConfirm(false);
     });
     deleteWord.addEventListener('input', () => {
       deleteGo.disabled = deleteWord.value !== 'DELETE';

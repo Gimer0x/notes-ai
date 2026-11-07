@@ -48,7 +48,7 @@ In `website/.env` set `VITE_API_URL=http://localhost:3000` and `VITE_GOOGLE_WEB_
 
 ### Stripe Checkout (Step 10)
 
-Use **test mode**. Create two recurring Prices (USD) — monthly **$7.99** and yearly **$87.99** — then put the Price ids in `backend/.env`:
+Use **test mode**. Create two recurring Prices (USD) — monthly **$9.99** and yearly **$109.99** — then put the Price ids in `backend/.env`:
 
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`

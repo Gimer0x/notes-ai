@@ -60,7 +60,7 @@
   "alreadyPaid": "You are already on {plan}.",
   "accountSignIn": "Sign in to see your plan and remaining listening time.",
   "remainingTitle": "Remaining this window",
-  "remainingTime": "{minutes} minutes left",
+  "remainingTime": "{minutes} minutes left monthly",
   "remainingNotesCount": "{count} notes left",
   "remainingNotesUnlimited": "Unlimited notes",
   "paidSuccessTitle": "You're paid",

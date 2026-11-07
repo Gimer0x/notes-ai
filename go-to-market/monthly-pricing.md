@@ -2,7 +2,7 @@
 
 $9.99 a month is the right shelf price for a simple meeting notepad. It is the wrong price for a 100-hour allowance. Transcription is almost the whole AI bill. The summary and the chat box are cents.
 
-The product today is seeded at **$7.99 a month** (or **$87.99 a year**) with **40 hours** of listening. This note is the pricing recommendation, not a description of the live plan.
+The product today charges **$9.99 a month** (or **$109.99 a year**) with **40 hours** of listening. This note is the pricing recommendation, not a description of the live plan.
 
 ## Recommendation
 

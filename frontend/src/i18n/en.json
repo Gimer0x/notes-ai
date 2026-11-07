@@ -84,7 +84,7 @@
   "planPaidMonthly": "Paid monthly",
   "planPaidYearly": "Paid yearly",
   "upgrade": "Upgrade",
-  "remainingTime": "{minutes} minutes left",
+  "remainingTime": "{minutes} minutes left monthly",
   "remainingNotesCount": "{count} notes left",
   "remainingNotesUnlimited": "Unlimited notes",
   "errorAuth": "Google sign-in failed",

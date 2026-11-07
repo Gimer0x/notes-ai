@@ -13,7 +13,7 @@ It does **not** join as a bot, does **not** capture screen or video, and does **
 
 When the user **stops** listening (after 30 seconds of audio), audio is **not kept**. OpenAI **GPT STT** then **GPT** numbered bullets; store the summary only. Meetings and summaries are **English or Spanish**; bullets are written in the **same language as the meeting**.
 
-Paid access is a real **Stripe Checkout** subscription (**$7.99/month** or **$87.99/year**). **Currency is always USD**. Checkout runs in the **system browser** and returns to the **website**. Free users are not blocked; they are capped. Yearly subscribers still get **40 hours per month**, not 40 hours per year.
+Paid access is a real **Stripe Checkout** subscription (**$9.99/month** or **$109.99/year**). **Currency is always USD**. Checkout runs in the **system browser** and returns to the **website**. Free users are not blocked; they are capped. Yearly subscribers still get **40 hours per month**, not 40 hours per year.
 
 ## Constraints (always)
 
@@ -53,8 +53,8 @@ This is the right split: Stripe is built for the browser; the website can conver
 1. Public **website**: product pitch, **download** the Mac app, Sign in / Sign out with Google.
 2. First Google login (website or Electron) creates the user with plan **`free`**. Stripe is not required to use the app.
 3. Product plans sold today: **`free`** and **`paid`**. A **`plus`** row is reserved for a higher price above 40 hours and is not offered in Checkout until its Stripe Price ids are set. Paid is sold as two Stripe Prices:
-   - **$7.99 USD / month**
-   - **$87.99 USD / year**
+   - **$9.99 USD / month**
+   - **$109.99 USD / year**
      User picks on the website pricing page. Store Price ids in the `plans` row / env — **do not hard-code dollar amounts** in the client. Amounts live in the Stripe Dashboard. Checkout and Prices are **USD only**.
 4. To become `paid`, complete **Stripe Checkout** (subscription). A **webhook** (not the client) sets `plan_code = paid`, `stripe_customer_id`, `stripe_subscription_id`, and period dates.
 5. Limits live in the **`plans` table** (admin changes them in SQL; no admin UI).
@@ -123,7 +123,7 @@ This is the right split: Stripe is built for the browser; the website can conver
 | Auth        | Google OAuth 2.0 (website + Electron; same user by Google subject)       | Gmail login only                                  |
 | STT         | OpenAI transcription (e.g. `gpt-4o-mini-transcribe`)                     | GPT family                                        |
 | Summary     | OpenAI GPT; numbered-bullet prompt                                       | GPT only                                          |
-| Payments    | Stripe Checkout (hosted) + webhook                                       | $7.99/mo and $87.99/yr                            |
+| Payments    | Stripe Checkout (hosted) + webhook                                       | $9.99/mo and $109.99/yr                           |
 | Installer   | electron-builder mac ships; win target configured, not built             | Future `.exe`                                     |
 | Secrets     | Each project `.env`                                                      | Never commit real values                          |
 
@@ -139,8 +139,8 @@ Keep this shape. Table names may differ; relationships must not.
 - `max_listening_seconds_per_window` (free: `3600`; paid: `144000` = 40 hours; plus starts at the same 40 hours until its higher cap is set in SQL)
 - `max_seconds_per_note` (free: `1800`; paid: `null`)
 - `max_notes_per_window` (free: `10`; paid: `0` = unlimited)
-- `stripe_price_id_monthly` (null on free; Stripe Price for $7.99/mo)
-- `stripe_price_id_yearly` (null on free; Stripe Price for $87.99/yr)
+- `stripe_price_id_monthly` (null on free; Stripe Price for $9.99/mo)
+- `stripe_price_id_yearly` (null on free; Stripe Price for $109.99/yr)
 - timestamps
 
 ### `organizations` (prepare only)
@@ -493,7 +493,7 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 
 **Env (add):** `DATABASE_URL`, later Google/Stripe secrets.
 
-**Do not:** Org product features. Do not hard-code $7.99.
+**Do not:** Org product features. Do not hard-code $9.99.
 
 **Done when:** `/health` ok; seed plans in Postgres; curl cannot transcribe in production without the spike key.
 
@@ -605,7 +605,7 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 | Topic             | Decision                                                                                                                                                                                 |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Unpaid users      | App + site on **free** caps; not blocked                                                                                                                                                 |
-| Stripe            | Real Checkout; **$7.99/mo** and **$87.99/yr**; **USD always**                                                                                                                            |
+| Stripe            | Real Checkout; **$9.99/mo** and **$109.99/yr**; **USD always**                                                                                                                           |
 | Where to pay      | **Website / system browser**; Electron Upgrade opens the browser                                                                                                                         |
 | After Checkout    | Website success/account page; user closes the Checkout tab                                                                                                                               |
 | Minimum listen    | **30 seconds**                                                                                                                                                                           |

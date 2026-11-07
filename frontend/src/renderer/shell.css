@@ -1301,21 +1301,43 @@ button.icon-btn:hover:not(:disabled) {
   line-height: 1.45;
 }
 
-.danger-inline {
+.danger-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.danger-inline .danger-hint {
-  flex: 1;
-}
-
-.danger-inline input {
-  width: 108px;
-  margin: 0;
+  gap: 8px;
   flex-shrink: 0;
+}
+
+.danger-card .danger-actions input {
+  width: 148px;
+  height: 34px;
+  margin: 0;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1.5px solid #c5cbf5;
+  background: #f4f5fc;
+  outline: none;
+}
+
+.danger-card .danger-actions input:focus {
+  border-color: #7e89e6;
+  box-shadow: 0 0 0 3px rgba(126, 137, 230, 0.35);
+  outline: none;
+}
+
+.danger-card .danger-actions button {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.danger-card button.danger-cancel {
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.danger-card button.danger-cancel:hover:not(:disabled) {
+  background: #fff;
 }
 
 .danger-card p {
