@@ -64,6 +64,7 @@ describe('API contracts (e2e)', () => {
     expect(body.remainingSeconds).toBe(3600);
     expect(body.accessUntil).toBeNull();
     expect(body.billingPaused).toBe(false);
+    expect(body.freeEligibleAt).toBeNull();
     expect(body).not.toHaveProperty('quota');
   });
 
@@ -114,6 +115,60 @@ describe('API contracts (e2e)', () => {
     expect(body.plan).toBe('free');
     expect(body.remainingSeconds).toBe(0);
     expect(body.remainingNotes).toBe(0);
+    expect(body.freeEligibleAt).toEqual(expect.any(String));
+  });
+
+  it('free access returns 30 days after deletion', async () => {
+    const users = app.get(UsersService);
+    const db = app.get(DbService);
+    const user = await insertUser(app, {
+      email: 'later@example.com',
+      subject: 'sub-later',
+    });
+    await users.deleteAccount(user.id);
+    await db.query(
+      `UPDATE former_accounts SET free_eligible_at = now() - interval '1 minute'
+       WHERE lower(email) = lower($1)`,
+      ['later@example.com'],
+    );
+    const again = await users.upsertFromGoogle({
+      subject: 'sub-later-again',
+      email: 'later@example.com',
+      displayName: null,
+      picture: null,
+    });
+    const token = signUserToken(again.id, JWT_SECRET);
+    const { body } = await request(app.getHttpServer())
+      .get('/me')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(body.remainingSeconds).toBe(3600);
+    expect(body.freeEligibleAt).toBeNull();
+  });
+
+  it('an expired paused subscription does not keep paid hours', async () => {
+    const db = app.get(DbService);
+    const user = await insertUser(app, {
+      email: 'expired@example.com',
+      subject: 'sub-expired',
+      plan: 'paid',
+    });
+    await db.query(
+      `UPDATE users
+       SET subscription_paused = true,
+           subscription_period_start = now() - interval '40 days',
+           subscription_period_end = now() - interval '1 hour'
+       WHERE id = $1`,
+      [user.id],
+    );
+    const token = signUserToken(user.id, JWT_SECRET);
+    const { body } = await request(app.getHttpServer())
+      .get('/me')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(body.plan).toBe('free');
+    expect(body.billingPaused).toBe(false);
+    expect(body.remainingSeconds).toBe(3600);
   });
 
   it('GET /me accepts the website session cookie', async () => {

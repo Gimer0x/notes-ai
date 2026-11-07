@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { freeQuotaWindow } from '../billing/billing.service';
 import { DbService } from '../db/db.service';
+import { queueWavCleanup, drainWavCleanup } from '../slices/wav-files';
 import type { GoogleIdentity, UserRow } from './user.types';
 
 const USER_RETURNING = `
@@ -12,6 +12,7 @@ const USER_RETURNING = `
          plan_code,
          created_at,
          stripe_customer_id,
+         stripe_subscription_id,
          stripe_price_id,
          subscription_period_start,
          subscription_period_end,
@@ -22,10 +23,6 @@ export class UsersService {
   constructor(private readonly db: DbService) {}
 
   async upsertFromGoogle(identity: GoogleIdentity): Promise<UserRow> {
-    const prior = await this.db.query<{ id: string }>(
-      `SELECT id FROM users WHERE google_subject = $1`,
-      [identity.subject],
-    );
     const result = await this.db.query<UserRow>(
       `INSERT INTO users (google_subject, email, display_name, avatar_url, plan_code)
        VALUES ($1, $2, $3, $4, 'free')
@@ -40,9 +37,6 @@ export class UsersService {
     const user = result.rows[0];
     if (!user) {
       throw new Error('failed to upsert user');
-    }
-    if (!prior.rows[0] && (await this.freeTimeAlreadyUsed(identity.email, identity.subject))) {
-      await this.markFreeTimeUsed(user);
     }
     return user;
   }
@@ -73,11 +67,15 @@ export class UsersService {
         [user.google_subject, user.email],
       );
       await query(
-        `INSERT INTO former_accounts (email, google_subject)
-         VALUES (lower($1), $2)
-         ON CONFLICT (email) DO UPDATE SET google_subject = EXCLUDED.google_subject`,
+        `INSERT INTO former_accounts (email, google_subject, deleted_at, free_eligible_at)
+         VALUES (lower($1), $2, now(), now() + interval '30 days')
+         ON CONFLICT (email) DO UPDATE SET
+           google_subject = EXCLUDED.google_subject,
+           deleted_at = now(),
+           free_eligible_at = now() + interval '30 days'`,
         [user.email, user.google_subject],
       );
+      await queueWavCleanup(query, userId);
       await query(`DELETE FROM note_slices WHERE user_id = $1`, [userId]);
       await query(`DELETE FROM notes WHERE user_id = $1`, [userId]);
       await query(`DELETE FROM workspaces WHERE user_id = $1`, [userId]);
@@ -87,6 +85,7 @@ export class UsersService {
         throw new Error('user not found');
       }
     });
+    await drainWavCleanup(this.db.query.bind(this.db));
   }
 
   async subscriptionId(userId: string): Promise<string | null> {
@@ -105,46 +104,5 @@ export class UsersService {
       [customerId],
     );
     return result.rows[0] ?? null;
-  }
-
-  private async freeTimeAlreadyUsed(email: string, subject: string): Promise<boolean> {
-    const found = await this.db.query(
-      `SELECT 1 FROM former_accounts
-       WHERE lower(email) = lower($1) OR google_subject = $2
-       LIMIT 1`,
-      [email, subject],
-    );
-    return Boolean(found.rows[0]);
-  }
-
-  private async markFreeTimeUsed(user: UserRow): Promise<void> {
-    const plan = await this.db.query<{
-      max_listening_seconds_per_window: number;
-      max_notes_per_window: number | null;
-    }>(
-      `SELECT max_listening_seconds_per_window, max_notes_per_window
-       FROM plans WHERE code = 'free'`,
-    );
-    const limits = plan.rows[0];
-    if (!limits) {
-      return;
-    }
-    const window = freeQuotaWindow(user.created_at);
-    const notes = limits.max_notes_per_window ?? 0;
-    await this.db.query(
-      `INSERT INTO usage_windows (
-         user_id, period_start, period_end, listening_seconds_used, notes_counted
-       ) VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (user_id, period_start) DO UPDATE SET
-         listening_seconds_used = GREATEST(usage_windows.listening_seconds_used, EXCLUDED.listening_seconds_used),
-         notes_counted = GREATEST(usage_windows.notes_counted, EXCLUDED.notes_counted)`,
-      [
-        user.id,
-        window.start.toISOString(),
-        window.end.toISOString(),
-        limits.max_listening_seconds_per_window,
-        notes,
-      ],
-    );
   }
 }

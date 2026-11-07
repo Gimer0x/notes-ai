@@ -161,8 +161,8 @@ Keep this shape. Table names may differ; relationships must not.
 
 ### `former_accounts`
 
-- `email` (lowercase), `google_subject`
-- Written when an account is deleted. A later signup with that email or Google subject does not get a new free window; the free quota is already used.
+- `email` (lowercase), `google_subject`, `deleted_at`, `free_eligible_at`
+- Written when an account is deleted, and updated on each later deletion. `free_eligible_at` is 30 days after that deletion. A signup before that time has no free hours. After that time, the free allowance starts again.
 
 ### `usage_windows` (quota meter)
 
@@ -624,7 +624,7 @@ Also **show the selected microphone name** in the debug window (the macOS defaul
 | Paid quota        | **40 hours / month** even on yearly; unlimited notes; **no** per-note cap                                                                                                                |
 | Paid window       | Stripe cycle if monthly; **monthly 40-hour reset** if yearly                                                                                                                             |
 | Pause account     | Stops the next charge. Paid access continues until `subscription_period_end`. **Resume** turns renewal back on. Website and Electron.                                                    |
-| Deleted account   | Email and Google subject stay in `former_accounts` so free time cannot restart                                                                                                           |
+| Deleted account   | Email and Google subject stay in `former_accounts`. Free hours return 30 days after that deletion. Paid time is not refunded. |
 | Languages         | **English and Spanish**; bullets = language of the meeting; mixed EN+ES → **dominant** language                                                                                          |
 | UI language       | **Website and Electron chrome: English and Spanish** (toggle + browser default). Meeting **summaries** still follow the meeting language, not the UI language.                           |
 | Spike transcribe  | **Dev-only** (`CAPTURE_SPIKE_KEY`). Never on a public server                                                                                                                             |

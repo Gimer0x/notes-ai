@@ -74,11 +74,17 @@ export class SlicesController {
     @Param('id') noteId: string,
     @Body() body: { finalSeq?: number; durationSeconds?: number; typedNotes?: string | null },
   ): Promise<{ ok: true }> {
+    if (typeof body.finalSeq !== 'number' || typeof body.durationSeconds !== 'number') {
+      throw new BadRequestException('final_seq');
+    }
+    if (body.typedNotes != null && typeof body.typedNotes !== 'string') {
+      throw new BadRequestException('typed_notes');
+    }
     await this.slices.seal({
       userId,
       noteId,
-      finalSeq: Number(body.finalSeq),
-      durationSeconds: Number(body.durationSeconds),
+      finalSeq: body.finalSeq,
+      durationSeconds: body.durationSeconds,
       typedNotes: body.typedNotes ?? '',
     });
     return { ok: true };

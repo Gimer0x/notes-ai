@@ -9,6 +9,7 @@ import { BillingService } from '../billing/billing.service';
 import { assertUuid, safeErrorMessage } from '../common/safe-error';
 import { DbService } from '../db/db.service';
 import { SlicesService } from '../slices/slices.service';
+import { drainWavCleanup, queueWavCleanup } from '../slices/wav-files';
 import { meetingLanguage } from '../transcribe/meeting-language';
 import { SummaryService, type MeetingLanguage } from '../summary/summary.service';
 import { cleanSpeech } from './clean-speech';
@@ -98,7 +99,9 @@ export class NotesService {
     if (note.status === 'processing') {
       throw new ConflictException('note_processing');
     }
+    await queueWavCleanup(this.db.query.bind(this.db), userId, noteId);
     await this.db.query(`DELETE FROM notes WHERE id = $1 AND user_id = $2`, [noteId, userId]);
+    await drainWavCleanup(this.db.query.bind(this.db));
   }
 
   async cancel(userId: string, noteId: string): Promise<void> {
@@ -106,7 +109,9 @@ export class NotesService {
     if (note.status !== 'listening' && note.status !== 'paused') {
       throw new ConflictException('not_listening');
     }
+    await queueWavCleanup(this.db.query.bind(this.db), userId, noteId);
     await this.db.query(`DELETE FROM notes WHERE id = $1 AND user_id = $2`, [noteId, userId]);
+    await drainWavCleanup(this.db.query.bind(this.db));
   }
 
   /** Ends the listen, keeps the transcript, and writes summary bullets. */
@@ -143,6 +148,9 @@ export class NotesService {
              language = $6,
              error_code = NULL,
              error_message = NULL,
+             summary_from_transcript = $7,
+             summary_running = $7,
+             summary_lease_until = CASE WHEN $7 THEN now() + interval '10 minutes' ELSE NULL END,
              updated_at = now()
          WHERE id = $1 AND user_id = $2 AND status IN ('listening', 'paused')
          RETURNING ${NOTE_COLUMNS}`,
@@ -153,6 +161,7 @@ export class NotesService {
           transcript,
           savedTurns ? JSON.stringify(savedTurns) : null,
           languageCode,
+          Boolean(transcript),
         ],
       );
       const row = updated.rows[0];
@@ -168,14 +177,23 @@ export class NotesService {
       `SELECT typed_notes FROM notes WHERE id = $1 AND user_id = $2`,
       [noteId, userId],
     );
-    return this.writeSummary(
-      userId,
-      noteId,
-      transcript,
-      languageCode ?? 'en',
-      durationSeconds,
-      written.rows[0]?.typed_notes ?? null,
-    );
+    try {
+      return await this.writeSummary(
+        userId,
+        noteId,
+        transcript,
+        languageCode ?? 'en',
+        durationSeconds,
+        written.rows[0]?.typed_notes ?? null,
+      );
+    } finally {
+      await this.db.query(
+        `UPDATE notes
+         SET summary_running = false, summary_lease_until = NULL
+         WHERE id = $1 AND status = 'processing'`,
+        [noteId],
+      );
+    }
   }
 
   async retry(userId: string, noteId: string): Promise<NoteResponse> {

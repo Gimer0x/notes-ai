@@ -325,6 +325,7 @@ handleIpc('auth:deleteAccount', async () => {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ confirm: 'DELETE' }),
+    signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { message?: string };
@@ -344,6 +345,7 @@ handleIpc('auth:pauseAccount', async () => {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ confirm: 'PAUSE' }),
+    signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { message?: string };
@@ -363,6 +365,7 @@ handleIpc('auth:resumeAccount', async () => {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ confirm: 'RESUME' }),
+    signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { message?: string };

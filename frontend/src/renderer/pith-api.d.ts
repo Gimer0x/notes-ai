@@ -61,6 +61,7 @@ type PithApi = {
       remainingNotes: number | null;
       accessUntil?: string | null;
       billingPaused?: boolean;
+      freeEligibleAt?: string | null;
       stale?: boolean;
     } | null>;
     upgrade: () => Promise<void>;

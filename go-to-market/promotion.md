@@ -8,7 +8,7 @@ Posting on every network at once spends the time that should go to those first h
 
 Do these in order.
 
-1. **People you already know.** Make a list of 30 professionals who take meetings on a Mac: consultants, founders, lawyers, accountants, managers. Send each one a personal note and ask them to record one real meeting. Reply to every response yourself. This is the whole first month. Then ask who else on their team takes notes.
+1. **People you already know.** Make a list of 30 professionals who take meetings on a Mac: consultants, founders, lawyers, acco<untants, managers. Send each one a personal note and ask them to record one real meeting. Reply to every response yourself. This is the whole first month. Then ask who else on their team takes notes.
 2. **LinkedIn, from your personal profile.** This is the buyer. Two posts a week, in English, and some in Spanish. Show one meeting turned into a short note. Skip the company page. Company pages get little reach.
 3. **One email letter you own.** A short Substack, or the list on the Pith site, is enough. Write for the same reader: a professional who wants the notes and does not want another system. Medium publishes the same essay into a place you do not own, so keep one home.
 4. **Product Hunt, once.** Do it only after **Download for Mac** installs a real app. That day can bring the first 50–200 signups. It will not carry the year. Tell the 30 users the date and ask them to try it that morning. A Tuesday is the usual day.

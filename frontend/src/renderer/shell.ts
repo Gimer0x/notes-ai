@@ -10,6 +10,7 @@ type Me = {
   remainingNotes: number | null;
   accessUntil?: string | null;
   billingPaused?: boolean;
+  freeEligibleAt?: string | null;
   stale?: boolean;
 };
 
@@ -479,8 +480,8 @@ function accessDay(iso: string | null | undefined): string {
   if (Number.isNaN(end.getTime())) {
     return '';
   }
-  const lastDay = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 1);
-  return lastDay.toLocaleDateString(locale === 'es' ? 'es' : 'en', { dateStyle: 'long' });
+  const lastInstant = new Date(end.getTime() - 1);
+  return lastInstant.toLocaleDateString(locale === 'es' ? 'es' : 'en', { dateStyle: 'long' });
 }
 
 function renewalDay(iso: string | null | undefined): string {
@@ -495,6 +496,9 @@ function renewalDay(iso: string | null | undefined): string {
 }
 
 function planDetail(user: Me | null): string {
+  if (user?.freeEligibleAt) {
+    return t.freeEligible.replace('{date}', renewalDay(user.freeEligibleAt));
+  }
   if (user?.plan === 'paid') {
     return t.paidCap;
   }
@@ -1095,9 +1099,11 @@ function renderProfile(): void {
       if (deleteWord.value !== 'DELETE') {
         return;
       }
+      deleteGo.disabled = true;
       void (async () => {
         await abandonListen();
         await pith.auth.deleteAccount();
+        localStorage.removeItem('pith.shareRecipients');
         await refreshMe();
         notes = [];
         workspaces = [];
@@ -2083,6 +2089,7 @@ async function init(): Promise<void> {
   $('signOut').addEventListener('click', async () => {
     await abandonListen();
     await pith.auth.logout();
+    localStorage.removeItem('pith.shareRecipients');
     await refreshMe();
     await reloadLists();
     view = { name: 'home' };

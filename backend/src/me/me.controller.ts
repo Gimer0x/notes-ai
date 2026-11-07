@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { CurrentUserId } from '../auth/current-user';
-import { BillingService } from '../billing/billing.service';
+import { BillingService, paidAccessEnded } from '../billing/billing.service';
 import { StripeService } from '../billing/stripe.service';
 import { UsersService } from '../users/users.service';
 
@@ -26,6 +26,7 @@ export type MeResponse = {
   remainingNotes: number | null;
   accessUntil: string | null;
   billingPaused: boolean;
+  freeEligibleAt: string | null;
 };
 
 @Controller('me')
@@ -44,6 +45,9 @@ export class MeController {
     if (!user) {
       throw new Error('user not found');
     }
+    if (paidAccessEnded(user)) {
+      await this.stripe.syncSubscription(userId).catch(() => undefined);
+    }
     const status = await this.billing.getStatus(userId);
     return {
       id: user.id,
@@ -56,6 +60,7 @@ export class MeController {
       remainingNotes: status.remainingNotes,
       accessUntil: status.accessUntil,
       billingPaused: status.billingPaused,
+      freeEligibleAt: status.freeEligibleAt,
     };
   }
 
@@ -90,10 +95,7 @@ export class MeController {
     if (body.confirm !== 'DELETE') {
       throw new BadRequestException('confirm_delete');
     }
-    const subscriptionId = await this.users.subscriptionId(userId);
-    if (subscriptionId) {
-      await this.stripe.cancelSubscription(subscriptionId);
-    }
+    await this.stripe.cancelAccountBilling(userId);
     await this.users.deleteAccount(userId);
   }
 }

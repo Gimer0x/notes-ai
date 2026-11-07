@@ -63,13 +63,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await apiFetch('/auth/logout', { method: 'POST' });
       if (!response.ok) {
         setUnavailable(true);
-        return;
+      } else {
+        setUnavailable(false);
       }
-      setMe(null);
-      setUnavailable(false);
     } catch {
       setUnavailable(true);
     }
+    setMe(null);
   }, []);
 
   const value = useMemo(

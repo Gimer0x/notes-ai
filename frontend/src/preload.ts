@@ -14,6 +14,7 @@ type MePayload = {
   remainingNotes: number | null;
   accessUntil?: string | null;
   billingPaused?: boolean;
+  freeEligibleAt?: string | null;
   stale?: boolean;
 };
 

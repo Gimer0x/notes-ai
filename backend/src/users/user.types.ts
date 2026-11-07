@@ -7,6 +7,7 @@ export type UserRow = {
   plan_code: 'free' | 'paid';
   created_at: Date;
   stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
   stripe_price_id: string | null;
   subscription_period_start: Date | null;
   subscription_period_end: Date | null;

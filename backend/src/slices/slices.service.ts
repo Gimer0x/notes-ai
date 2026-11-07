@@ -18,6 +18,7 @@ import { cleanSpeech } from '../notes/clean-speech';
 import { SummaryService } from '../summary/summary.service';
 import { OpenAiTranscribeService } from '../transcribe/openai-transcribe.service';
 import { sliceFailureIsFinal, sliceRetryDelaySeconds } from './slice-retry';
+import { drainWavCleanup } from './wav-files';
 
 function concurrency(name: string, fallback: number): number {
   const value = Number(process.env[name]);
@@ -286,11 +287,23 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
     durationSeconds: number;
     typedNotes: string;
   }): Promise<void> {
-    if (!Number.isInteger(input.finalSeq) || input.finalSeq < 0) {
+    if (
+      typeof input.finalSeq !== 'number' ||
+      !Number.isSafeInteger(input.finalSeq) ||
+      input.finalSeq < 0 ||
+      input.finalSeq > 2000
+    ) {
       throw new BadRequestException('final_seq');
     }
-    if (!Number.isFinite(input.durationSeconds) || input.durationSeconds < 0) {
+    if (
+      typeof input.durationSeconds !== 'number' ||
+      !Number.isFinite(input.durationSeconds) ||
+      input.durationSeconds < 0
+    ) {
       throw new BadRequestException('duration_seconds');
+    }
+    if (typeof input.typedNotes !== 'string') {
+      throw new BadRequestException('typed_notes');
     }
     await this.db.transaction(async (query) => {
       const current = await query<{ status: string; final_seq: number | null }>(
@@ -747,6 +760,7 @@ export class SlicesService implements OnModuleInit, OnModuleDestroy {
       await unlink(row.wav_path).catch(() => undefined);
       await this.db.query(`UPDATE note_slices SET wav_path = NULL WHERE id = $1`, [row.id]);
     }
+    await drainWavCleanup(this.db.query.bind(this.db));
   }
 
   private async ownedNote(userId: string, noteId: string): Promise<{ status: string }> {

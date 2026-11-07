@@ -11,6 +11,7 @@ export type BillingStatus = {
   remainingNotes: number | null;
   accessUntil: string | null;
   billingPaused: boolean;
+  freeEligibleAt: string | null;
 };
 
 type PlanRow = {
@@ -26,6 +27,30 @@ type WindowRow = {
 
 /** Free quota window from PLAN: 30 days from signup, not a calendar month. */
 export const FREE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Active renewals keep paid hours for one day after period end if the webhook is late. */
+export const PAID_GRACE_MS = 24 * 60 * 60 * 1000;
+
+export function paidAccessEnded(
+  user: {
+    plan_code: string;
+    subscription_paused: boolean;
+    subscription_period_end: Date | string | null;
+  },
+  now = new Date(),
+): boolean {
+  if (user.plan_code !== 'paid' || !user.subscription_period_end) {
+    return false;
+  }
+  const end = new Date(user.subscription_period_end).getTime();
+  if (Number.isNaN(end)) {
+    return false;
+  }
+  if (user.subscription_paused) {
+    return now.getTime() >= end;
+  }
+  return now.getTime() >= end + PAID_GRACE_MS;
+}
 
 export function freeQuotaWindow(createdAt: Date): { start: Date; end: Date } {
   const start = new Date(createdAt);
@@ -62,38 +87,57 @@ export class BillingService {
     if (!user) {
       throw new Error('user not found');
     }
+    const quota = quotaIdentity(user);
     const planResult = await this.db.query<PlanRow>(
       `SELECT code, max_listening_seconds_per_window, max_notes_per_window
        FROM plans
        WHERE code = $1`,
-      [user.plan_code],
+      [quota.plan_code],
     );
     const plan = planResult.rows[0];
     if (!plan) {
       throw new Error('plan not found');
     }
-    const window = currentWindow(user);
+    const window = currentWindow(quota);
     const usage = await this.ensureWindow(userId, window.start, window.end);
-    const remainingSeconds = Math.max(
+    let remainingSeconds = Math.max(
       0,
       plan.max_listening_seconds_per_window - usage.listening_seconds_used,
     );
-    const remainingNotes = unlimitedNotes(plan.max_notes_per_window)
+    let remainingNotes = unlimitedNotes(plan.max_notes_per_window)
       ? null
       : Math.max(0, (plan.max_notes_per_window ?? 0) - usage.notes_counted);
+    let freeEligibleAt: string | null = null;
+    if (quota.plan_code === 'free') {
+      const former = await this.db.query<{ free_eligible_at: Date | null }>(
+        `SELECT free_eligible_at FROM former_accounts
+         WHERE lower(email) = lower($1) OR google_subject = $2
+         ORDER BY free_eligible_at DESC NULLS LAST
+         LIMIT 1`,
+        [user.email, user.google_subject],
+      );
+      const eligible = former.rows[0]?.free_eligible_at;
+      if (eligible && new Date(eligible).getTime() > Date.now()) {
+        remainingSeconds = 0;
+        remainingNotes = 0;
+        freeEligibleAt = new Date(eligible).toISOString();
+      }
+    }
     const periodEnd = user.subscription_period_end
       ? new Date(user.subscription_period_end)
       : null;
+    const paidNow = quota.plan_code === 'paid';
     return {
-      plan: user.plan_code,
-      planInterval: await this.intervalFor(user),
+      plan: quota.plan_code,
+      planInterval: paidNow ? await this.intervalFor(user) : null,
       remainingSeconds,
       remainingNotes,
       accessUntil:
-        user.plan_code === 'paid' && periodEnd && !Number.isNaN(periodEnd.getTime())
+        paidNow && periodEnd && !Number.isNaN(periodEnd.getTime())
           ? periodEnd.toISOString()
           : null,
-      billingPaused: user.plan_code === 'paid' && Boolean(user.subscription_paused),
+      billingPaused: paidNow && Boolean(user.subscription_paused),
+      freeEligibleAt,
     };
   }
 
@@ -149,7 +193,7 @@ export class BillingService {
     if (!user) {
       throw new Error('user not found');
     }
-    const window = currentWindow(user);
+    const window = currentWindow(quotaIdentity(user));
     await this.ensureWindow(userId, window.start, window.end, query);
     const seconds = Math.max(0, Math.round(durationSeconds));
     await query(
@@ -214,8 +258,14 @@ function unlimitedNotes(maxNotes: number | null): boolean {
   return maxNotes === null || maxNotes === 0;
 }
 
-function currentWindow(user: UserRow): { start: Date; end: Date } {
-  const now = new Date();
+function quotaIdentity(user: UserRow): UserRow {
+  if (!paidAccessEnded(user)) {
+    return user;
+  }
+  return { ...user, plan_code: 'free', subscription_paused: false };
+}
+
+function currentWindow(user: UserRow, now = new Date()): { start: Date; end: Date } {
   if (user.plan_code === 'paid') {
     const anchor = user.subscription_period_start ?? user.created_at;
     return monthlyWindow(anchor, now);
@@ -227,34 +277,33 @@ function currentWindow(user: UserRow): { start: Date; end: Date } {
   return { start, end };
 }
 
-function monthlyWindow(anchor: Date, now: Date): { start: Date; end: Date } {
+/** One monthly bucket from a stable UTC anniversary. The day is clamped after the month is chosen. */
+export function monthlyWindow(anchor: Date, now: Date): { start: Date; end: Date } {
   const day = anchor.getUTCDate();
-  let start = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0),
-  );
-  start.setUTCDate(Math.min(day, daysInUtcMonth(start)));
-  start.setUTCHours(
-    anchor.getUTCHours(),
-    anchor.getUTCMinutes(),
-    anchor.getUTCSeconds(),
-    anchor.getUTCMilliseconds(),
-  );
+  const hours = anchor.getUTCHours();
+  const minutes = anchor.getUTCMinutes();
+  const seconds = anchor.getUTCSeconds();
+  const ms = anchor.getUTCMilliseconds();
+  const boundary = (year: number, month: number): Date => {
+    const days = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(year, month, Math.min(day, days), hours, minutes, seconds, ms));
+  };
+  let year = now.getUTCFullYear();
+  let month = now.getUTCMonth();
+  let start = boundary(year, month);
   if (start.getTime() > now.getTime()) {
-    start = addUtcMonths(start, -1);
-    start.setUTCDate(Math.min(day, daysInUtcMonth(start)));
+    month -= 1;
+    if (month < 0) {
+      month = 11;
+      year -= 1;
+    }
+    start = boundary(year, month);
   }
-  const end = addUtcMonths(start, 1);
-  return { start, end };
-}
-
-function addUtcMonths(date: Date, delta: number): Date {
-  const next = new Date(date.getTime());
-  next.setUTCMonth(next.getUTCMonth() + delta);
-  return next;
-}
-
-function daysInUtcMonth(date: Date): number {
-  return new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0),
-  ).getUTCDate();
+  let endMonth = month + 1;
+  let endYear = year;
+  if (endMonth > 11) {
+    endMonth = 0;
+    endYear += 1;
+  }
+  return { start, end: boundary(endYear, endMonth) };
 }

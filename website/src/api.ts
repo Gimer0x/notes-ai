@@ -9,6 +9,7 @@ export type MeResponse = {
   remainingNotes: number | null;
   accessUntil: string | null;
   billingPaused: boolean;
+  freeEligibleAt?: string | null;
 };
 
 export function apiUrl(): string {

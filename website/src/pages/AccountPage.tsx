@@ -13,8 +13,8 @@ function accessDay(iso: string | null | undefined, locale: string): string {
   if (Number.isNaN(end.getTime())) {
     return '';
   }
-  const lastDay = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 1);
-  return lastDay.toLocaleDateString(locale === 'es' ? 'es' : 'en', { dateStyle: 'long' });
+  const lastInstant = new Date(end.getTime() - 1);
+  return lastInstant.toLocaleDateString(locale === 'es' ? 'es' : 'en', { dateStyle: 'long' });
 }
 
 function renewalDay(iso: string | null | undefined, locale: string): string {
@@ -122,6 +122,9 @@ export function AccountPage() {
           <h3>{t.remainingTitle}</h3>
           <p className="price">{t.remainingTime.replace('{minutes}', String(minutes))}</p>
           <p>{notesLine}</p>
+          {me.freeEligibleAt ? (
+            <p>{t.freeEligible.replace('{date}', renewalDay(me.freeEligibleAt, locale))}</p>
+          ) : null}
         </article>
       </div>
       )}

@@ -59,7 +59,7 @@ On API boot those Price ids are copied onto the `paid` row in `plans`. Caps stil
 
 `STRIPE_PRICE_ID_PLUS_MONTHLY` and `STRIPE_PRICE_ID_PLUS_YEARLY` are optional. When set, they are copied onto a reserved `plus` plan row. That plan is not shown on Pricing and Checkout still sells only `paid`. Raise the `plus` listening cap in SQL when that higher plan is ready to sell.
 
-**Pause account** (website Account and the Mac app Profile) asks Stripe to stop renewing at the end of the period already paid. The user keeps the paid plan until that date, then is not charged again. **Resume** on the same card turns renewal back on, so the next period is charged again. The account and notes stay. **Delete account** on both surfaces still requires typing `DELETE`. The email and Google subject are kept in `former_accounts`, so signing up again does not restart the free allowance.
+**Pause account** (website Account and the Mac app Profile) asks Stripe to stop renewing at the end of the period already paid. The user keeps the paid plan until that date, then is not charged again. **Resume** on the same card turns renewal back on, so the next period is charged again. The account and notes stay. A paused plan whose period has already ended is treated as free, including when the cancellation webhook is missing. **Delete account** on both surfaces still requires typing `DELETE`. The email and Google subject are kept in `former_accounts` with `free_eligible_at` 30 days after that deletion. Signing up again before that date does not restore free hours. After that date, the free allowance starts again. Deleting an account also removes queued audio files for that account. Paid time is not refunded.
 
 Forward webhooks while developing:
 

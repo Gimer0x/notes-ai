@@ -112,6 +112,25 @@ export const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS former_accounts (
     email TEXT PRIMARY KEY,
     google_subject TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ,
+    free_eligible_at TIMESTAMPTZ
+  )`,
+  `ALTER TABLE former_accounts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`,
+  `ALTER TABLE former_accounts ADD COLUMN IF NOT EXISTS free_eligible_at TIMESTAMPTZ`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_event_at TIMESTAMPTZ`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS checkout_session_id TEXT`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS checkout_session_url TEXT`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS checkout_session_expires TIMESTAMPTZ`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS checkout_price_id TEXT`,
+  `CREATE TABLE IF NOT EXISTS stripe_events (
+    event_id TEXT PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`,
+  `CREATE TABLE IF NOT EXISTS wav_cleanup (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    wav_path TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS former_accounts_google_subject_idx
