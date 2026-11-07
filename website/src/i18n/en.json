@@ -50,6 +50,7 @@
   "deleteAccountHint": "Removes your account, notes, and workspaces. Paid time is not refunded. Free access can start again 30 days after deletion. This cannot be undone.",
   "freeEligible": "Free access returns on {date}.",
   "deleteAccountConfirm": "Confirm",
+  "cancel": "Cancel",
   "deleteAccountBody": "Type DELETE to confirm. Your account, notes, and workspaces will be deleted. Paid time is not refunded. This cannot be undone.",
   "accountActionFailed": "That did not work. Try again.",
   "priceMonthly": "{amount} USD / month",

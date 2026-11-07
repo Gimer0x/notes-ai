@@ -80,6 +80,7 @@ const $ = (id: string) => document.getElementById(id) as HTMLElement;
 let locale: Locale = 'en';
 let t: Messages = {};
 let me: Me | null = null;
+let sessionReady = false;
 let view: View = { name: 'home' };
 let listenSeconds = 0;
 let heardSound = false;
@@ -2023,6 +2024,9 @@ function showNoteWhen(): void {
 }
 
 function render(): void {
+  if (!sessionReady) {
+    return;
+  }
   setMainError('');
   showNoteWhen();
   syncNewNote();
@@ -2226,12 +2230,18 @@ async function init(): Promise<void> {
     }
   });
   bindAsk();
+  let startupError = '';
   try {
     await reloadLists();
-    render();
   } catch (error) {
-    setMainError(apiMessage(error));
+    startupError = apiMessage(error);
   }
+  sessionReady = true;
+  render();
+  if (startupError) {
+    setMainError(startupError);
+  }
+  document.body.classList.add('session-ready');
   const syncCaptureFinalizing = async (): Promise<void> => {
     captureFinalizing = await pith.capture.finalizing();
     syncNewNote();

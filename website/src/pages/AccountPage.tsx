@@ -116,8 +116,8 @@ export function AccountPage() {
                 .replace('{plan}', planLabel(me, t))}
         </p>
       </section>
-      {justPaid && me.plan !== 'paid' ? null : (
-      <div className="grid pricing-grid">
+      <div className="account-actions">
+        {justPaid && me.plan !== 'paid' ? null : (
         <article className="card">
           <h3>{t.remainingTitle}</h3>
           <p className="price">{t.remainingTime.replace('{minutes}', String(minutes))}</p>
@@ -126,56 +126,78 @@ export function AccountPage() {
             <p>{t.freeEligible.replace('{date}', renewalDay(me.freeEligibleAt, locale))}</p>
           ) : null}
         </article>
-      </div>
-      )}
-      <div className="account-actions">
+        )}
         {me.plan === 'paid' ? (
           <article className="card">
             <h3>{t.pauseAccount}</h3>
-            <p>
-              {me.accessUntil
-                ? t.pauseAccountHint.replace('{date}', accessDay(me.accessUntil, locale))
-                : t.pauseAccountHintOpen}
-            </p>
+            {resumeOpen ? (
+              <p>
+                {me.accessUntil
+                  ? t.resumeAccountBody.replace('{date}', renewalDay(me.accessUntil, locale))
+                  : t.resumeAccountBodyOpen}
+              </p>
+            ) : pauseOpen ? (
+              <p>
+                {me.accessUntil
+                  ? t.pauseAccountBody.replace('{date}', accessDay(me.accessUntil, locale))
+                  : t.pauseAccountBodyOpen}
+              </p>
+            ) : (
+              <>
+                <p>
+                  {me.accessUntil
+                    ? t.pauseAccountHint.replace('{date}', accessDay(me.accessUntil, locale))
+                    : t.pauseAccountHintOpen}
+                </p>
+                {me.billingPaused ? (
+                  <p>{t.pauseAccountUntil.replace('{date}', accessDay(me.accessUntil, locale))}</p>
+                ) : null}
+              </>
+            )}
             {me.billingPaused ? (
               <>
-                <p>{t.pauseAccountUntil.replace('{date}', accessDay(me.accessUntil, locale))}</p>
                 {resumeOpen ? (
-                  <p>
-                    {me.accessUntil
-                      ? t.resumeAccountBody.replace('{date}', renewalDay(me.accessUntil, locale))
-                      : t.resumeAccountBodyOpen}
-                  </p>
-                ) : null}
-                {resumeOpen ? (
-                  <button
-                    type="button"
-                    disabled={working}
-                    onClick={() => {
-                      void (async () => {
-                        setWorking(true);
-                        setAccountError('');
-                        try {
-                          const response = await apiFetch('/me/resume', {
-                            method: 'POST',
-                            body: JSON.stringify({ confirm: 'RESUME' }),
-                          });
-                          if (!response.ok) {
+                  <div className="account-confirm">
+                    <button
+                      type="button"
+                      disabled={working}
+                      onClick={() => {
+                        void (async () => {
+                          setWorking(true);
+                          setAccountError('');
+                          try {
+                            const response = await apiFetch('/me/resume', {
+                              method: 'POST',
+                              body: JSON.stringify({ confirm: 'RESUME' }),
+                            });
+                            if (!response.ok) {
+                              setAccountError(t.accountActionFailed);
+                              return;
+                            }
+                            setResumeOpen(false);
+                            await refresh();
+                          } catch {
                             setAccountError(t.accountActionFailed);
-                            return;
+                          } finally {
+                            setWorking(false);
                           }
-                          setResumeOpen(false);
-                          await refresh();
-                        } catch {
-                          setAccountError(t.accountActionFailed);
-                        } finally {
-                          setWorking(false);
-                        }
-                      })();
-                    }}
-                  >
-                    {t.resumeAccountConfirm}
-                  </button>
+                        })();
+                      }}
+                    >
+                      {t.resumeAccountConfirm}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={working}
+                      onClick={() => {
+                        setResumeOpen(false);
+                        setAccountError('');
+                      }}
+                    >
+                      {t.cancel}
+                    </button>
+                  </div>
                 ) : (
                   <button type="button" className="secondary" onClick={() => setResumeOpen(true)}>
                     {t.resumeAccount}
@@ -185,41 +207,47 @@ export function AccountPage() {
             ) : (
               <>
                 {pauseOpen ? (
-                  <p>
-                    {me.accessUntil
-                      ? t.pauseAccountBody.replace('{date}', accessDay(me.accessUntil, locale))
-                      : t.pauseAccountBodyOpen}
-                  </p>
-                ) : null}
-                {pauseOpen ? (
-                  <button
-                    type="button"
-                    disabled={working}
-                    onClick={() => {
-                      void (async () => {
-                        setWorking(true);
-                        setAccountError('');
-                        try {
-                          const response = await apiFetch('/me/pause', {
-                            method: 'POST',
-                            body: JSON.stringify({ confirm: 'PAUSE' }),
-                          });
-                          if (!response.ok) {
+                  <div className="account-confirm">
+                    <button
+                      type="button"
+                      disabled={working}
+                      onClick={() => {
+                        void (async () => {
+                          setWorking(true);
+                          setAccountError('');
+                          try {
+                            const response = await apiFetch('/me/pause', {
+                              method: 'POST',
+                              body: JSON.stringify({ confirm: 'PAUSE' }),
+                            });
+                            if (!response.ok) {
+                              setAccountError(t.accountActionFailed);
+                              return;
+                            }
+                            setPauseOpen(false);
+                            await refresh();
+                          } catch {
                             setAccountError(t.accountActionFailed);
-                            return;
+                          } finally {
+                            setWorking(false);
                           }
-                          setPauseOpen(false);
-                          await refresh();
-                        } catch {
-                          setAccountError(t.accountActionFailed);
-                        } finally {
-                          setWorking(false);
-                        }
-                      })();
-                    }}
-                  >
-                    {t.pauseAccountConfirm}
-                  </button>
+                        })();
+                      }}
+                    >
+                      {t.pauseAccountConfirm}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={working}
+                      onClick={() => {
+                        setPauseOpen(false);
+                        setAccountError('');
+                      }}
+                    >
+                      {t.cancel}
+                    </button>
+                  </div>
                 ) : (
                   <button type="button" className="secondary" onClick={() => setPauseOpen(true)}>
                     {t.pauseAccount}
@@ -231,10 +259,9 @@ export function AccountPage() {
         ) : null}
         <article className="card">
           <h3>{t.deleteAccount}</h3>
-          <p>{t.deleteAccountHint}</p>
+          <p>{deleteOpen ? t.deleteAccountBody : t.deleteAccountHint}</p>
           {deleteOpen ? (
-            <>
-              <p>{t.deleteAccountBody}</p>
+            <div className="account-confirm">
               <input
                 value={deleteWord}
                 autoComplete="off"
@@ -268,7 +295,19 @@ export function AccountPage() {
               >
                 {t.deleteAccountConfirm}
               </button>
-            </>
+              <button
+                type="button"
+                className="secondary"
+                disabled={working}
+                onClick={() => {
+                  setDeleteWord('');
+                  setDeleteOpen(false);
+                  setAccountError('');
+                }}
+              >
+                {t.cancel}
+              </button>
+            </div>
           ) : (
             <button type="button" className="secondary" onClick={() => setDeleteOpen(true)}>
               {t.deleteAccount}

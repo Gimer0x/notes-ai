@@ -336,6 +336,26 @@ select {
   flex-direction: column;
   align-items: flex-start;
   gap: 14px;
+  width: 100%;
+  min-height: 12.25rem;
+  box-sizing: border-box;
+}
+
+.account-actions .card > button,
+.account-actions .card > .account-confirm {
+  margin-top: auto;
+}
+
+.account-confirm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.account-confirm input {
+  height: 42px;
+  border-radius: 999px;
 }
 
 .account-actions .card h3,
